@@ -1,6 +1,3 @@
-[gd_scene load_steps=2 format=3 uid="uid://n64lhi44upqn"]
+[gd_scene load_steps=1 format=3 uid="uid://n64lhi44upqn"]
 
-[ext_resource type="Script" uid="uid://ytanu0f2q156" path="res://MainScene.cs" id="1_c186f"]
-
-[node name="MainScene" type="Node"]
-script = ExtResource("1_c186f")
+[node name="MainScene" type="MainScene"]
