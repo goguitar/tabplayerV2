@@ -21,7 +21,7 @@ See the MiiChannel song, note the strings and note preview at: https://www.murph
 
 ## Included Rust Dependencies
 
--   [godot-rust/gdext](https://github.com/godot-rust/gdext) for Godot scripting
+-   [godot-rust/gdext v0.5.2](https://github.com/godot-rust/gdext/releases/tag/v0.5.2) for Godot scripting
 -   [Rocksmith2014.rs](https://github.com/santzit/rocksmith2014.rs) for PSARC/SNG/XML parsing
 -   [vgmstream r2083](https://github.com/vgmstream/vgmstream/releases/tag/r2083) shared library for WEM → WAV decoding
 
