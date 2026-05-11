@@ -1,6 +1,6 @@
 use godot::classes::ProjectSettings;
 use godot::prelude::*;
-use libloading::{Library, Symbol};
+use libloading::Library;
 use std::ffi::{c_char, c_int, c_longlong, c_void, CString};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,6 +17,8 @@ pub enum VgmstreamError {
     RenderFailed,
 }
 
+const VGMSTREAM_RELEASE: &str = "r2083 (wav-only)";
+
 pub struct DecodedAudio {
     pub data: Vec<u8>,
     pub sample_rate: i32,
@@ -25,20 +27,22 @@ pub struct DecodedAudio {
 
 pub struct Vgmstream {
     _lib: Library,
-    init: Symbol<'static, unsafe extern "C" fn() -> *mut LibVgmstream>,
-    free: Symbol<'static, unsafe extern "C" fn(*mut LibVgmstream)>,
-    setup: Symbol<'static, unsafe extern "C" fn(*mut LibVgmstream, *mut LibVgmstreamConfig)>,
+    init: unsafe extern "C" fn() -> *mut LibVgmstream,
+    free: unsafe extern "C" fn(*mut LibVgmstream),
+    setup: unsafe extern "C" fn(*mut LibVgmstream, *mut LibVgmstreamConfig),
     open_stream:
-        Symbol<'static, unsafe extern "C" fn(*mut LibVgmstream, *mut LibStreamFile, c_int) -> c_int>,
-    close_stream: Symbol<'static, unsafe extern "C" fn(*mut LibVgmstream)>,
-    render: Symbol<'static, unsafe extern "C" fn(*mut LibVgmstream) -> c_int>,
-    streamfile_close: Symbol<'static, unsafe extern "C" fn(*mut LibStreamFile)>,
+        unsafe extern "C" fn(*mut LibVgmstream, *mut LibStreamFile, c_int) -> c_int,
+    close_stream: unsafe extern "C" fn(*mut LibVgmstream),
+    render: unsafe extern "C" fn(*mut LibVgmstream) -> c_int,
+    streamfile_close: unsafe extern "C" fn(*mut LibStreamFile),
 }
 
 impl Vgmstream {
     pub fn load_default() -> Result<Self, VgmstreamError> {
         let path = resolve_library_path().ok_or_else(|| {
-            VgmstreamError::LibraryNotFound("third_party/vgmstream".to_string())
+            VgmstreamError::LibraryNotFound(format!(
+                "third_party/vgmstream (expected {VGMSTREAM_RELEASE})"
+            ))
         })?;
         Self::load_from_path(&path)
     }
@@ -48,41 +52,43 @@ impl Vgmstream {
             .map_err(|_| VgmstreamError::LibraryNotFound(path.display().to_string()))?;
 
         unsafe {
-            let init: Symbol<unsafe extern "C" fn() -> *mut LibVgmstream> = lib
-                .get(b"libvgmstream_init\0")
+            let init = *lib
+                .get::<unsafe extern "C" fn() -> *mut LibVgmstream>(b"libvgmstream_init\0")
                 .map_err(|_| VgmstreamError::InitFailed)?;
-            let free: Symbol<unsafe extern "C" fn(*mut LibVgmstream)> =
-                lib.get(b"libvgmstream_free\0")
-                    .map_err(|_| VgmstreamError::InitFailed)?;
-            let setup: Symbol<
-                unsafe extern "C" fn(*mut LibVgmstream, *mut LibVgmstreamConfig),
-            > = lib
-                .get(b"libvgmstream_setup\0")
+            let free = *lib
+                .get::<unsafe extern "C" fn(*mut LibVgmstream)>(b"libvgmstream_free\0")
                 .map_err(|_| VgmstreamError::InitFailed)?;
-            let open_stream: Symbol<
-                unsafe extern "C" fn(*mut LibVgmstream, *mut LibStreamFile, c_int) -> c_int,
-            > = lib
-                .get(b"libvgmstream_open_stream\0")
+            let setup = *lib
+                .get::<unsafe extern "C" fn(*mut LibVgmstream, *mut LibVgmstreamConfig)>(
+                    b"libvgmstream_setup\0",
+                )
                 .map_err(|_| VgmstreamError::InitFailed)?;
-            let close_stream: Symbol<unsafe extern "C" fn(*mut LibVgmstream)> = lib
-                .get(b"libvgmstream_close_stream\0")
+            let open_stream = *lib
+                .get::<unsafe extern "C" fn(*mut LibVgmstream, *mut LibStreamFile, c_int) -> c_int>(
+                    b"libvgmstream_open_stream\0",
+                )
                 .map_err(|_| VgmstreamError::InitFailed)?;
-            let render: Symbol<unsafe extern "C" fn(*mut LibVgmstream) -> c_int> = lib
-                .get(b"libvgmstream_render\0")
+            let close_stream = *lib
+                .get::<unsafe extern "C" fn(*mut LibVgmstream)>(b"libvgmstream_close_stream\0")
                 .map_err(|_| VgmstreamError::InitFailed)?;
-            let streamfile_close: Symbol<unsafe extern "C" fn(*mut LibStreamFile)> = lib
-                .get(b"libstreamfile_close\0")
+            let render = *lib
+                .get::<unsafe extern "C" fn(*mut LibVgmstream) -> c_int>(
+                    b"libvgmstream_render\0",
+                )
+                .map_err(|_| VgmstreamError::InitFailed)?;
+            let streamfile_close = *lib
+                .get::<unsafe extern "C" fn(*mut LibStreamFile)>(b"libstreamfile_close\0")
                 .map_err(|_| VgmstreamError::InitFailed)?;
 
             Ok(Self {
                 _lib: lib,
-                init: std::mem::transmute(init),
-                free: std::mem::transmute(free),
-                setup: std::mem::transmute(setup),
-                open_stream: std::mem::transmute(open_stream),
-                close_stream: std::mem::transmute(close_stream),
-                render: std::mem::transmute(render),
-                streamfile_close: std::mem::transmute(streamfile_close),
+                init,
+                free,
+                setup,
+                open_stream,
+                close_stream,
+                render,
+                streamfile_close,
             })
         }
     }
@@ -162,7 +168,7 @@ fn resolve_library_path() -> Option<PathBuf> {
 
     let path = format!("res://third_party/vgmstream/{folder}/{filename}");
     let ps = ProjectSettings::singleton();
-    let abs = ps.globalize_path(path.into());
+    let abs = ps.globalize_path(path.as_str());
     let abs = abs.to_string();
     let path_buf = PathBuf::from(abs);
     if path_buf.exists() {

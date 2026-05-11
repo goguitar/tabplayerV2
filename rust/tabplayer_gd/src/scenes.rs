@@ -2,17 +2,20 @@ use crate::models::*;
 use crate::services::*;
 use crate::song_repository::SongRepository;
 use godot::classes::{
-    AudioEffectPitchShift, AudioServer, AudioStreamPlayer, AudioStreamWav, BoxMesh, Button,
+    AudioEffectPitchShift, AudioServer, AudioStream, AudioStreamPlayer, AudioStreamWav, BoxMesh, Button,
     ButtonGroup, Camera3D, CheckBox, CheckButton, ColorPickerButton, ConfirmationDialog, Control,
     DirectionalLight3D, Engine, FileDialog, GradientTexture2D, GridContainer, HBoxContainer, Image,
     ImageTexture, InputEvent, InputEventMouseButton, ItemList, Label, Label3D, LineEdit, Line2D,
-    MenuButton, MouseButton, OptionButton, OS, PackedScene, PlaneMesh, RichTextLabel, SceneTree,
-    SpinBox, Texture2D, TextureRect, VBoxContainer,
+    Material, MenuButton, Mesh, MeshInstance3D, OptionButton, Os, PackedScene, PlaneMesh,
+    RichTextLabel, SceneTree, SpinBox, StandardMaterial3D, Texture2D, TextureRect, VBoxContainer,
 };
+use godot::classes::audio_stream_wav;
 use godot::classes::os::SystemDir;
+use godot::global::MouseButton;
 use godot::classes::{IControl, INode, INode2D, INode3D, IVBoxContainer};
 use godot::prelude::*;
 use itertools::Itertools;
+use std::cell::Cell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::f64;
@@ -60,76 +63,76 @@ impl MainScene {
         self.load_start_menu();
 
         let mut convert_menu = load_scene::<ConvertMenu>("res://scenes/ConvertMenu.tscn");
-        self.base.add_child(convert_menu.clone().upcast());
+        self.base_mut().add_child(Some(&convert_menu.clone().upcast::<Node>()));
         convert_menu.connect(
-            "closed".into(),
-            self.base.callable("on_convert_closed"),
+            "closed",
+            &self.base_mut().callable("on_convert_closed"),
         );
         self.convert_menu = Some(convert_menu);
 
         let mut info_page = load_scene::<InfoPage>("res://scenes/InfoPage.tscn");
-        self.base.add_child(info_page.clone().upcast());
-        info_page.connect("closed".into(), self.base.callable("on_info_closed"));
+        self.base_mut().add_child(Some(&info_page.clone().upcast::<Node>()));
+        info_page.connect("closed", &self.base_mut().callable("on_info_closed"));
         self.info_page = Some(info_page);
 
         let mut settings_page = load_scene::<SettingsPage>("res://scenes/SettingsPage.tscn");
-        self.base
-            .add_child(settings_page.clone().upcast());
+        self.base_mut()
+            .add_child(Some(&settings_page.clone().upcast::<Node>()));
         settings_page.connect(
-            "closed".into(),
-            self.base.callable("on_settings_closed"),
+            "closed",
+            &self.base_mut().callable("on_settings_closed"),
         );
         self.settings_page = Some(settings_page);
     }
 
     fn load_start_menu(&mut self) {
         let mut start_menu = load_scene::<StartMenu>("res://scenes/StartMenu.tscn");
-        self.base.add_child(start_menu.clone().upcast());
-        start_menu.connect("closed".into(), self.base.callable("on_start_closed"));
+        self.base_mut().add_child(Some(&start_menu.clone().upcast::<Node>()));
+        start_menu.connect("closed", &self.base_mut().callable("on_start_closed"));
         start_menu.connect(
-            "song_pick_opened".into(),
-            self.base.callable("on_song_pick_opened"),
+            "song_pick_opened",
+            &self.base_mut().callable("on_song_pick_opened"),
         );
         start_menu.connect(
-            "song_list_file_changed".into(),
-            self.base.callable("reload_song_list"),
+            "song_list_file_changed",
+            &self.base_mut().callable("reload_song_list"),
         );
         start_menu.connect(
-            "convert_menu_opened".into(),
-            self.base.callable("on_convert_opened"),
+            "convert_menu_opened",
+            &self.base_mut().callable("on_convert_opened"),
         );
         start_menu.connect(
-            "info_menu_opened".into(),
-            self.base.callable("on_info_opened"),
+            "info_menu_opened",
+            &self.base_mut().callable("on_info_opened"),
         );
         start_menu.connect(
-            "settings_opened".into(),
-            self.base.callable("on_settings_opened"),
+            "settings_opened",
+            &self.base_mut().callable("on_settings_opened"),
         );
         self.start_menu = Some(start_menu);
     }
 
     #[func]
     fn on_start_closed(&mut self) {
-        self.base.get_tree().map(|mut tree| tree.quit());
+        self.base_mut().get_tree().quit();
     }
 
     #[func]
     fn on_song_pick_opened(&mut self) {
         if let Some(mut start_menu) = self.start_menu.take() {
-            self.base.remove_child(start_menu.clone().upcast());
+            self.base_mut().remove_child(Some(&start_menu.clone().upcast::<Node>()));
         }
         if let Some(mut convert_menu) = self.convert_menu.as_mut() {
-            self.base.remove_child(convert_menu.clone().upcast());
+            self.base_mut().remove_child(Some(&convert_menu.clone().upcast::<Node>()));
         }
         if let Some(mut settings_page) = self.settings_page.as_mut() {
-            self.base.remove_child(settings_page.clone().upcast());
+            self.base_mut().remove_child(Some(&settings_page.clone().upcast::<Node>()));
         }
         if let Some(mut info_page) = self.info_page.as_mut() {
-            self.base.remove_child(info_page.clone().upcast());
+            self.base_mut().remove_child(Some(&info_page.clone().upcast::<Node>()));
         }
         if let Some(song_pick) = &self.song_pick {
-            self.base.add_child(song_pick.clone().upcast());
+            self.base_mut().add_child(Some(&song_pick.clone().upcast::<Node>()));
         }
     }
 
@@ -205,42 +208,42 @@ impl MainScene {
         self.load_song_pick();
         if loaded {
             if let Some(song_pick) = &self.song_pick {
-                self.base.add_child(song_pick.clone().upcast());
+                self.base_mut().add_child(Some(&song_pick.clone().upcast::<Node>()));
             }
         }
     }
 
     fn load_song_pick(&mut self) {
         let mut song_pick = load_scene::<SongPick>("res://scenes/SongPick.tscn");
-        song_pick.connect("closed".into(), self.base.callable("on_song_pick_closed"));
-        song_pick.connect("opened_song".into(), self.base.callable("on_song_opened"));
+        song_pick.connect("closed", &self.base_mut().callable("on_song_pick_closed"));
+        song_pick.connect("opened_song", &self.base_mut().callable("on_song_opened"));
         self.song_pick = Some(song_pick);
     }
 
     #[func]
     fn on_song_pick_closed(&mut self) {
         if let Some(song_pick) = &self.song_pick {
-            self.base.remove_child(song_pick.clone().upcast());
+            self.base_mut().remove_child(Some(&song_pick.clone().upcast::<Node>()));
         }
         if let Some(start_menu) = &self.start_menu {
-            self.base.add_child(start_menu.clone().upcast());
+            self.base_mut().add_child(Some(&start_menu.clone().upcast::<Node>()));
             start_menu.bind().animate_in();
         }
         if let Some(convert_menu) = &self.convert_menu {
-            self.base.add_child(convert_menu.clone().upcast());
+            self.base_mut().add_child(Some(&convert_menu.clone().upcast::<Node>()));
         }
         if let Some(settings_page) = &self.settings_page {
-            self.base.add_child(settings_page.clone().upcast());
+            self.base_mut().add_child(Some(&settings_page.clone().upcast::<Node>()));
         }
         if let Some(info_page) = &self.info_page {
-            self.base.add_child(info_page.clone().upcast());
+            self.base_mut().add_child(Some(&info_page.clone().upcast::<Node>()));
         }
     }
 
     #[func]
     fn on_song_opened(&mut self, folder: GString, instrument: GString) {
         if let Some(song_pick) = &self.song_pick {
-            self.base.remove_child(song_pick.clone().upcast());
+            self.base_mut().remove_child(Some(&song_pick.clone().upcast::<Node>()));
         }
         let mut scene = load_scene::<SongScene>("res://scenes/SongScene.tscn");
         let state = SongRepository::global()
@@ -249,14 +252,14 @@ impl MainScene {
         if let Some(state) = state {
             scene.bind_mut().init(state);
         }
-        self.base.add_child(scene.clone().upcast());
-        scene.connect("closed".into(), self.base.callable("on_song_scene_closed"));
+        self.base_mut().add_child(Some(&scene.clone().upcast::<Node>()));
+        scene.connect("closed", &self.base_mut().callable("on_song_scene_closed"));
     }
 
     #[func]
     fn on_song_scene_closed(&mut self) {
         if let Some(song_pick) = &self.song_pick {
-            self.base.add_child(song_pick.clone().upcast());
+            self.base_mut().add_child(Some(&song_pick.clone().upcast::<Node>()));
         }
     }
 }
@@ -282,14 +285,14 @@ impl IControl for StartMenu {
 
     fn ready(&mut self) {
         let song_count = SongRepository::global().lock().song_files().len();
-        if let Some(mut song_count_label) = self.base.get_node_as::<Label>("%SongCountLabel") {
-            song_count_label.set_text(format!("{song_count} songs").into());
+        if let Some(mut song_count_label) = self.base_mut().try_get_node_as::<Label>("%SongCountLabel") {
+            song_count_label.set_text(&format!("{song_count} songs"));
         }
 
-        if let Some(obj) = self.base.get_node_as::<VBoxContainer>("VBoxContainer") {
+        if let Some(obj) = self.base_mut().try_get_node_as::<VBoxContainer>("VBoxContainer") {
             let initial_pos = Vector2::new(-obj.get_size().x, obj.get_position().y);
             let tween = TweenHelper::new(
-                self.base.get_tree().unwrap(),
+                self.base_mut().get_tree(),
                 obj.clone().upcast(),
                 "position",
                 initial_pos.to_variant(),
@@ -302,8 +305,8 @@ impl IControl for StartMenu {
     }
 
     fn process(&mut self, _delta: f64) {
-        if let Some(mut label) = self.base.get_node_as::<Label>("ReloadProgressLabel") {
-            label.set_text(self.progress_text.clone().into());
+        if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("ReloadProgressLabel") {
+            label.set_text(self.progress_text.as_str());
         }
     }
 }
@@ -327,33 +330,33 @@ impl StartMenu {
     #[allow(non_snake_case)]
     fn PlayButton_Pressed(&mut self) {
         self.animate_out();
-        self.base.emit_signal("song_pick_opened".into(), &[]);
+        self.base_mut().emit_signal("song_pick_opened", &[]);
     }
 
     #[func]
     #[allow(non_snake_case)]
     fn InfoButton_Pressed(&mut self) {
         self.animate_out();
-        self.base.emit_signal("info_menu_opened".into(), &[]);
+        self.base_mut().emit_signal("info_menu_opened", &[]);
     }
 
     #[func]
     #[allow(non_snake_case)]
     fn ConvertButton_Pressed(&mut self) {
         self.animate_out();
-        self.base.emit_signal("convert_menu_opened".into(), &[]);
+        self.base_mut().emit_signal("convert_menu_opened", &[]);
     }
 
     #[func]
     #[allow(non_snake_case)]
     fn ReloadButton_Pressed(&mut self) {
-        if let Some(mut play_button) = self.base.get_node_as::<Button>("%PlayButton") {
+        if let Some(mut play_button) = self.base_mut().try_get_node_as::<Button>("%PlayButton") {
             play_button.set_disabled(true);
         }
-        if let Some(mut convert_button) = self.base.get_node_as::<Button>("%ConvertButton") {
+        if let Some(mut convert_button) = self.base_mut().try_get_node_as::<Button>("%ConvertButton") {
             convert_button.set_disabled(true);
         }
-        if let Some(mut reload_button) = self.base.get_node_as::<Button>("%ReloadButton") {
+        if let Some(mut reload_button) = self.base_mut().try_get_node_as::<Button>("%ReloadButton") {
             reload_button.set_disabled(true);
         }
 
@@ -361,15 +364,15 @@ impl StartMenu {
         let _ = repo.reload_sources(|msg| {
             self.progress_text = msg;
         });
-        self.base.emit_signal("song_list_file_changed".into(), &[]);
+        self.base_mut().emit_signal("song_list_file_changed", &[]);
 
-        if let Some(mut play_button) = self.base.get_node_as::<Button>("%PlayButton") {
+        if let Some(mut play_button) = self.base_mut().try_get_node_as::<Button>("%PlayButton") {
             play_button.set_disabled(false);
         }
-        if let Some(mut convert_button) = self.base.get_node_as::<Button>("%ConvertButton") {
+        if let Some(mut convert_button) = self.base_mut().try_get_node_as::<Button>("%ConvertButton") {
             convert_button.set_disabled(false);
         }
-        if let Some(mut reload_button) = self.base.get_node_as::<Button>("%ReloadButton") {
+        if let Some(mut reload_button) = self.base_mut().try_get_node_as::<Button>("%ReloadButton") {
             reload_button.set_disabled(false);
         }
     }
@@ -377,14 +380,14 @@ impl StartMenu {
     #[func]
     #[allow(non_snake_case)]
     fn QuitButton_Pressed(&mut self) {
-        self.base.emit_signal("closed".into(), &[]);
+        self.base_mut().emit_signal("closed", &[]);
     }
 
     #[func]
     #[allow(non_snake_case)]
     fn SettingsButton_Pressed(&mut self) {
         self.animate_out();
-        self.base.emit_signal("settings_opened".into(), &[]);
+        self.base_mut().emit_signal("settings_opened", &[]);
     }
 
     pub fn animate_in(&self) {
@@ -415,15 +418,19 @@ impl IVBoxContainer for ConvertMenu {
     }
 
     fn ready(&mut self) {
-        let initial_pos = Vector2::new(-self.base.get_size().x, self.base.get_position().y);
-        let tween = TweenHelper::new(
-            self.base.get_tree().unwrap(),
-            self.base.clone().upcast(),
-            "position",
-            initial_pos.to_variant(),
-            self.base.get_position().to_variant(),
-        );
-        self.base.set_position(initial_pos);
+        let tween = {
+            let mut base = self.base_mut();
+            let initial_pos = Vector2::new(-base.get_size().x, base.get_position().y);
+            let tween = TweenHelper::new(
+                base.get_tree(),
+                base.clone().upcast(),
+                "position",
+                initial_pos.to_variant(),
+                base.get_position().to_variant(),
+            );
+            base.set_position(initial_pos);
+            tween
+        };
         self.tween = Some(tween);
     }
 }
@@ -436,11 +443,11 @@ impl ConvertMenu {
     #[func]
     #[allow(non_snake_case)]
     fn ChoseButton_Pressed(&mut self) {
-        if let Some(mut info_label) = self.base.get_node_as::<Label>("InfoLabel") {
-            info_label.set_text("".into());
+        if let Some(mut info_label) = self.base_mut().try_get_node_as::<Label>("InfoLabel") {
+            info_label.set_text("");
         }
-        if let Some(mut dialog) = self.base.get_node_as::<FileDialog>("FileDialog") {
-            let window_size = self.base.get_window().map(|w| w.get_size()).unwrap_or(Vector2i::new(1280, 720));
+        if let Some(mut dialog) = self.base_mut().try_get_node_as::<FileDialog>("FileDialog") {
+            let window_size = self.base_mut().get_window().map(|w| w.get_size()).unwrap_or(Vector2i::new(1280, 720));
             dialog.set_size(Vector2i::new((window_size.x as f64 * 0.8) as i32, (window_size.y as f64 * 0.8) as i32));
             dialog.popup_centered();
         }
@@ -449,9 +456,9 @@ impl ConvertMenu {
     #[func]
     #[allow(non_snake_case)]
     fn FromDownloadsButton_Pressed(&mut self) {
-        let downloads = OS::singleton().get_system_dir(SystemDir::Downloads);
-        if let Some(mut info_label) = self.base.get_node_as::<Label>("InfoLabel") {
-            info_label.set_text(format!("Loading from {}", downloads).into());
+        let downloads = Os::singleton().get_system_dir(SystemDir::DOWNLOADS);
+        if let Some(mut info_label) = self.base_mut().try_get_node_as::<Label>("InfoLabel") {
+            info_label.set_text(&format!("Loading from {}", downloads));
         }
         let files = std::fs::read_dir(downloads.to_string())
             .map(|entries| {
@@ -490,20 +497,21 @@ impl ConvertMenu {
     #[allow(non_snake_case)]
     fn Files_Selected(&mut self, paths: PackedStringArray) {
         let files = paths
-            .iter_shared()
+            .as_slice()
+            .iter()
             .map(|p| PathBuf::from(p.to_string()))
             .collect::<Vec<_>>();
         self.convert_files(files);
     }
 
     fn convert_files(&mut self, files: Vec<PathBuf>) {
-        if let Some(mut info_label) = self.base.get_node_as::<Label>("InfoLabel") {
+        if let Some(mut info_label) = self.base_mut().try_get_node_as::<Label>("InfoLabel") {
             let psarc_files: Vec<PathBuf> = files
                 .into_iter()
                 .filter(|path| path.extension().map(|ext| ext == "psarc").unwrap_or(false))
                 .collect();
             if psarc_files.is_empty() {
-                info_label.set_text("No valid .psarc files found".into());
+                info_label.set_text("No valid .psarc files found");
                 return;
             }
             let mut completed = 0;
@@ -514,7 +522,7 @@ impl ConvertMenu {
                     Err(_) => failed += 1,
                 }
             }
-            info_label.set_text(format!("Completed: {completed}, failed: {failed}").into());
+            info_label.set_text(&format!("Completed: {completed}, failed: {failed}"));
         }
     }
 
@@ -524,7 +532,7 @@ impl ConvertMenu {
         if let Some(tween) = &self.tween {
             tween.to_initial();
         }
-        self.base.emit_signal("closed".into(), &[]);
+        self.base_mut().emit_signal("closed", &[]);
     }
 
     pub fn animate_in(&self) {
@@ -555,14 +563,19 @@ impl IVBoxContainer for InfoPage {
     }
 
     fn ready(&mut self) {
-        let tween = TweenHelper::new(
-            self.base.get_tree().unwrap(),
-            self.base.clone().upcast(),
-            "position",
-            Vector2::new(-500.0, self.base.get_position().y).to_variant(),
-            self.base.get_position().to_variant(),
-        );
-        self.base.set_position(Vector2::new(-500.0, self.base.get_position().y));
+        let tween = {
+            let mut base = self.base_mut();
+            let initial_pos = Vector2::new(-500.0, base.get_position().y);
+            let tween = TweenHelper::new(
+                base.get_tree(),
+                base.clone().upcast(),
+                "position",
+                initial_pos.to_variant(),
+                base.get_position().to_variant(),
+            );
+            base.set_position(initial_pos);
+            tween
+        };
         self.tween = Some(tween);
     }
 }
@@ -575,20 +588,20 @@ impl InfoPage {
     #[func]
     #[allow(non_snake_case)]
     fn BackButton_Pressed(&mut self) {
-        self.base.emit_signal("closed".into(), &[]);
+        self.base_mut().emit_signal("closed", &[]);
     }
 
     #[func]
     #[allow(non_snake_case)]
     fn ProjectSourceButton_Pressed(&mut self) {
-        OS::singleton().shell_open("https://github.com/Murph9/tabplayerV2".into());
+        Os::singleton().shell_open("https://github.com/Murph9/tabplayerV2");
     }
 
     #[func]
     #[allow(non_snake_case)]
     fn OpenConfigFolder_Pressed(&mut self) {
-        let folder = OS::singleton().get_user_data_dir();
-        OS::singleton().shell_open(format!("file://{folder}").into());
+        let folder = Os::singleton().get_user_data_dir();
+        Os::singleton().shell_open(format!("file://{folder}"));
     }
 
     pub fn animate_in(&self) {
@@ -629,14 +642,19 @@ impl IVBoxContainer for SettingsPage {
         self.settings = SettingsService::settings();
         self.color_pickers = Vec::new();
         self.build_ui();
-        let tween = TweenHelper::new(
-            self.base.get_tree().unwrap(),
-            self.base.clone().upcast(),
-            "position",
-            Vector2::new(-500.0, self.base.get_position().y).to_variant(),
-            self.base.get_position().to_variant(),
-        );
-        self.base.set_position(Vector2::new(-500.0, self.base.get_position().y));
+        let tween = {
+            let mut base = self.base_mut();
+            let initial_pos = Vector2::new(-500.0, base.get_position().y);
+            let tween = TweenHelper::new(
+                base.get_tree(),
+                base.clone().upcast(),
+                "position",
+                initial_pos.to_variant(),
+                base.get_position().to_variant(),
+            );
+            base.set_position(initial_pos);
+            tween
+        };
         self.tween = Some(tween);
     }
 }
@@ -648,76 +666,77 @@ impl SettingsPage {
 
     fn build_ui(&mut self) {
         let mut header = HBoxContainer::new_alloc();
-        let mut title = Label::new();
-        title.set_text("Settings".into());
-        header.add_child(title.upcast());
-        let mut exit_button = Button::new();
-        exit_button.set_text("Save and Close".into());
-        exit_button.connect("pressed".into(), self.base.callable("on_close_pressed"));
-        header.add_child(exit_button.upcast());
-        self.base.add_child(header.upcast());
+        let mut title = Label::new_alloc();
+        title.set_text("Settings");
+        header.add_child(Some(&title.upcast::<Node>()));
+        let mut exit_button = Button::new_alloc();
+        exit_button.set_text("Save and Close");
+        exit_button.connect("pressed", &self.base_mut().callable("on_close_pressed"));
+        header.add_child(Some(&exit_button.upcast::<Node>()));
+        self.base_mut().add_child(Some(&header.upcast::<Node>()));
 
-        let mut label = Label::new();
-        label.set_text("Set String Colours (low to high):".into());
-        self.base.add_child(label.upcast());
+        let mut label = Label::new_alloc();
+        label.set_text("Set String Colours (low to high):");
+        self.base_mut().add_child(Some(&label.upcast::<Node>()));
 
         for i in 0..6 {
             let string_char = DisplayConst::STRING_LABELS[i];
             let mut box_container = HBoxContainer::new_alloc();
-            let mut string_label = Label::new();
-            string_label.set_text(format!("{string_char} String").into());
-            box_container.add_child(string_label.upcast());
-            let mut picker = ColorPickerButton::new();
-            picker.set_color(self.settings.string_colours[i]);
+            let mut string_label = Label::new_alloc();
+            string_label.set_text(&format!("{string_char} String"));
+            box_container.add_child(Some(&string_label.upcast::<Node>()));
+            let mut picker = ColorPickerButton::new_alloc();
+            picker.set_pick_color(self.settings.string_colours[i]);
             picker.set_edit_alpha(false);
-            let callable = self.base.callable("on_color_changed").bind(i as i64);
-            picker.connect("popup_closed".into(), callable);
+            let args = [i.to_variant()];
+            let callable = self.base_mut().callable("on_color_changed").bind(&args);
+            picker.connect("popup_closed", &callable);
             self.color_pickers.push(picker.clone());
-            box_container.add_child(picker.upcast());
-            self.base.add_child(box_container.upcast());
+            box_container.add_child(Some(&picker.upcast::<Node>()));
+            self.base_mut().add_child(Some(&box_container.upcast::<Node>()));
         }
 
-        let mut other_label = Label::new();
-        other_label.set_text("Other Settings".into());
-        self.base.add_child(other_label.upcast());
+        let mut other_label = Label::new_alloc();
+        other_label.set_text("Other Settings");
+        self.base_mut().add_child(Some(&other_label.upcast::<Node>()));
 
-        let mut low_is_low = CheckBox::new();
-        low_is_low.set_text("Low String at the bottom".into());
-        low_is_low.set_button_pressed(self.settings.low_string_is_low);
-        low_is_low.connect("pressed".into(), self.base.callable("on_low_is_low_toggled"));
-        self.base.add_child(low_is_low.upcast());
+        let mut low_is_low = CheckBox::new_alloc();
+        low_is_low.set_text("Low String at the bottom");
+        low_is_low.set_pressed(self.settings.low_string_is_low);
+        low_is_low.connect("pressed", &self.base_mut().callable("on_low_is_low_toggled"));
+        self.base_mut().add_child(Some(&low_is_low.upcast::<Node>()));
 
         let mut camera_box = HBoxContainer::new_alloc();
-        let mut camera_label = Label::new();
-        camera_label.set_text(format!("Change Camera Aim Speed: {}", self.settings.camera_aim_speed).into());
-        camera_box.add_child(camera_label.upcast());
-        let mut camera_up = Button::new();
-        camera_up.set_text("(+)".into());
-        camera_up.connect("pressed".into(), self.base.callable("on_camera_speed_up"));
-        camera_box.add_child(camera_up.upcast());
-        let mut camera_down = Button::new();
-        camera_down.set_text("(-)".into());
-        camera_down.connect("pressed".into(), self.base.callable("on_camera_speed_down"));
-        camera_box.add_child(camera_down.upcast());
-        self.base.add_child(camera_box.upcast());
+        let mut camera_label = Label::new_alloc();
+        camera_label.set_text(&format!("Change Camera Aim Speed: {}", self.settings.camera_aim_speed));
+        camera_box.add_child(Some(&camera_label.upcast::<Node>()));
+        let mut camera_up = Button::new_alloc();
+        camera_up.set_text("(+)");
+        camera_up.connect("pressed", &self.base_mut().callable("on_camera_speed_up"));
+        camera_box.add_child(Some(&camera_up.upcast::<Node>()));
+        let mut camera_down = Button::new_alloc();
+        camera_down.set_text("(-)");
+        camera_down.connect("pressed", &self.base_mut().callable("on_camera_speed_down"));
+        camera_box.add_child(Some(&camera_down.upcast::<Node>()));
+        self.base_mut().add_child(Some(&camera_box.upcast::<Node>()));
 
         let mut audio_box = HBoxContainer::new_alloc();
-        let mut audio_label = Label::new();
-        audio_label.set_text("AudioOffset (in Ms): ".into());
-        audio_box.add_child(audio_label.upcast());
-        let mut audio_offset = SpinBox::new();
+        let mut audio_label = Label::new_alloc();
+        audio_label.set_text("AudioOffset (in Ms): ");
+        audio_box.add_child(Some(&audio_label.upcast::<Node>()));
+        let mut audio_offset = SpinBox::new_alloc();
         audio_offset.set_min(0.0);
         audio_offset.set_max(5000.0);
         audio_offset.set_step(1.0);
         audio_offset.set_value_no_signal(self.settings.audio_position_offset_ms);
-        audio_offset.connect("value_changed".into(), self.base.callable("on_audio_offset_changed"));
-        audio_box.add_child(audio_offset.upcast());
-        self.base.add_child(audio_box.upcast());
+        audio_offset.connect("value_changed", &self.base_mut().callable("on_audio_offset_changed"));
+        audio_box.add_child(Some(&audio_offset.upcast::<Node>()));
+        self.base_mut().add_child(Some(&audio_box.upcast::<Node>()));
     }
 
     #[func]
     fn on_close_pressed(&mut self) {
-        self.base.emit_signal("closed".into(), &[]);
+        self.base_mut().emit_signal("closed", &[]);
     }
 
     #[func]
@@ -754,7 +773,7 @@ impl SettingsPage {
     #[func]
     fn on_color_changed(&mut self, index: i64) {
         if let Some(picker) = self.color_pickers.get(index as usize) {
-            let color = picker.get_color();
+            let color = picker.get_pick_color();
             if let Some(entry) = self.settings.string_colours.get_mut(index as usize) {
                 *entry = color;
                 SettingsService::update_settings(self.settings.clone());
@@ -801,17 +820,17 @@ impl IControl for SongPick {
     fn ready(&mut self) {
         let mut song_display = load_scene::<SongDisplay>("res://scenes/SongDisplay.tscn");
         song_display.connect(
-            "song_selected".into(),
-            self.base.callable("on_song_selected"),
+            "song_selected",
+            &self.base_mut().callable("on_song_selected"),
         );
         let mut song_list = load_scene::<SongList>("res://scenes/SongList.tscn");
         song_list.bind_mut().set_display(song_display.clone());
-        song_list.connect("song_selected".into(), song_display.callable("song_changed"));
+        song_list.connect("song_selected", &song_display.callable("song_changed"));
         self.song_list = Some(song_list.clone());
         self.song_display = Some(song_display);
 
-        if let Some(mut vbox) = self.base.get_node_as::<VBoxContainer>("MarginContainer/VBoxContainer") {
-            vbox.add_child(song_list.clone().upcast());
+        if let Some(mut vbox) = self.base_mut().try_get_node_as::<VBoxContainer>("MarginContainer/VBoxContainer") {
+            vbox.add_child(Some(&song_list.clone().upcast::<Node>()));
         }
     }
 }
@@ -836,8 +855,8 @@ impl SongPick {
         if let Some(song_list) = &self.song_list {
             let tuning_filter = song_list.bind().tuning_filter.clone();
             if tuning_filter.is_empty() {
-                self.base.emit_signal(
-                    "opened_song".into(),
+                self.base_mut().emit_signal(
+                    "opened_song",
                     &[song.id.to_variant(), instrument.to_variant()],
                 );
                 return;
@@ -848,11 +867,11 @@ impl SongPick {
                 let tuning_name = Instrument::calc_tuning_name(picked_instrument.tuning, picked_instrument.capo_fret);
                 if tuning_name != tuning_filter {
                     if let Some(mut dialog) =
-                        self.base.get_node_as::<ConfirmationDialog>("TuningConfirmationDialog")
+                        self.base_mut().try_get_node_as::<ConfirmationDialog>("TuningConfirmationDialog")
                     {
-                        dialog.set_dialog_text(format!(
+                        dialog.set_dialog_text(&format!(
                             "Instrument tuning ({tuning_name}) is different to song filter ({tuning_filter})\nAre you sure?"
-                        ).into());
+                        ));
                         dialog.popup_centered();
                     }
                     self.temp_song_for_confirm = Some(song);
@@ -861,8 +880,8 @@ impl SongPick {
                 }
             }
         }
-        self.base.emit_signal(
-            "opened_song".into(),
+        self.base_mut().emit_signal(
+            "opened_song",
             &[song.id.to_variant(), instrument.to_variant()],
         );
     }
@@ -874,8 +893,8 @@ impl SongPick {
             self.temp_song_for_confirm.clone(),
             self.temp_instrument_for_confirm.clone(),
         ) {
-            self.base.emit_signal(
-                "opened_song".into(),
+            self.base_mut().emit_signal(
+                "opened_song",
                 &[song.id.to_variant(), instrument.to_variant()],
             );
         }
@@ -884,7 +903,7 @@ impl SongPick {
     #[func]
     #[allow(non_snake_case)]
     fn Back(&mut self) {
-        self.base.emit_signal("closed".into(), &[]);
+        self.base_mut().emit_signal("closed", &[]);
     }
 }
 
@@ -929,39 +948,39 @@ impl SongDisplay {
             None => return,
         };
 
-            if let Some(mut album_rect) = self.base.get_node_as::<TextureRect>("AlbumArtTextureRect") {
-                album_rect.set_texture(GradientTexture2D::new().upcast());
+            if let Some(mut album_rect) = self.base_mut().try_get_node_as::<TextureRect>("AlbumArtTextureRect") {
+                album_rect.set_texture(Some(&GradientTexture2D::new_gd().upcast::<Texture2D>()));
             }
-        if let Some(mut label) = self.base.get_node_as::<Label>("ArtistLabel") {
-            label.set_text(format!("Artist: {}", song_info.artist).into());
+        if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("ArtistLabel") {
+            label.set_text(&format!("Artist: {}", song_info.artist));
         }
-        if let Some(mut label) = self.base.get_node_as::<Label>("SongNameLabel") {
-            label.set_text(format!("Name: {}", song_info.song_name).into());
+        if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("SongNameLabel") {
+            label.set_text(&format!("Name: {}", song_info.song_name));
         }
-        if let Some(mut label) = self.base.get_node_as::<Label>("AlbumLabel") {
-            label.set_text(format!("Album: {}", song_info.album).into());
+        if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("AlbumLabel") {
+            label.set_text(&format!("Album: {}", song_info.album));
         }
-        if let Some(mut label) = self.base.get_node_as::<Label>("YearLabel") {
-            label.set_text(format!("Year: {:?}", song_info.year).into());
+        if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("YearLabel") {
+            label.set_text(&format!("Year: {:?}", song_info.year));
         }
-        if let Some(mut label) = self.base.get_node_as::<Label>("OtherLabel") {
-            label.set_text(format!("Length: {}", to_min_sec(song_info.length as f64, false)).into());
+        if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("OtherLabel") {
+            label.set_text(&format!("Length: {}", to_min_sec(song_info.length as f64, false)));
         }
 
-        if let Some(mut grid) = self.base.get_node_as::<GridContainer>("InstrumentGridContainer") {
-            for child in grid.get_children() {
-                grid.remove_child(child);
+        if let Some(mut grid) = self.base_mut().try_get_node_as::<GridContainer>("InstrumentGridContainer") {
+            for child in grid.get_children().iter_shared() {
+                grid.remove_child(Some(&child));
             }
-            grid.add_child(Label::new().upcast());
-            let mut tuning_label = Label::new();
-            tuning_label.set_text("Tuning".into());
-            grid.add_child(tuning_label.upcast());
-            let mut note_label = Label::new();
-            note_label.set_text("Note Counts".into());
-            grid.add_child(note_label.upcast());
-            let mut density_label = Label::new();
-            density_label.set_text("Note Density".into());
-            grid.add_child(density_label.upcast());
+            grid.add_child(Some(&Label::new_alloc().upcast::<Node>()));
+            let mut tuning_label = Label::new_alloc();
+            tuning_label.set_text("Tuning");
+            grid.add_child(Some(&tuning_label.upcast::<Node>()));
+            let mut note_label = Label::new_alloc();
+            note_label.set_text("Note Counts");
+            grid.add_child(Some(&note_label.upcast::<Node>()));
+            let mut density_label = Label::new_alloc();
+            density_label.set_text("Note Density");
+            grid.add_child(Some(&density_label.upcast::<Node>()));
             grid.set_columns(grid.get_child_count() as i32);
 
             let mut instruments = song_info.instruments.clone();
@@ -977,32 +996,32 @@ impl SongDisplay {
                 a_order.cmp(&b_order)
             });
             for instrument in instruments {
-                let mut button = Button::new();
-                button.set_text(format!("Play {}", instrument.name).into());
+                let mut button = Button::new_alloc();
+                button.set_text(&format!("Play {}", instrument.name));
                 let folder_name = self.folder_name.clone().unwrap_or_default();
                 let instrument_name = instrument.name.clone();
-                let callable = self.base.callable("emit_song_selected").bind(
+                let callable = self.base_mut().callable("emit_song_selected").bind(
                     folder_name.to_variant(),
                     instrument_name.to_variant(),
                 );
-                button.connect("pressed".into(), callable);
-                grid.add_child(button.upcast());
-                let mut label = Label::new();
-                label.set_text(Instrument::calc_tuning_name(instrument.tuning, instrument.capo_fret).into());
-                grid.add_child(label.upcast());
-                let mut label = Label::new();
-                label.set_text(format!("{}", instrument.note_count).into());
-                grid.add_child(label.upcast());
-                let mut label = Label::new();
-                label.set_text(to_fixed_places(instrument.note_density(&song_info) as f64, 2, false).into());
-                grid.add_child(label.upcast());
+                button.connect("pressed", &callable);
+                grid.add_child(Some(&button.upcast::<Node>()));
+                let mut label = Label::new_alloc();
+                label.set_text(&Instrument::calc_tuning_name(instrument.tuning, instrument.capo_fret));
+                grid.add_child(Some(&label.upcast::<Node>()));
+                let mut label = Label::new_alloc();
+                label.set_text(&format!("{}", instrument.note_count));
+                grid.add_child(Some(&label.upcast::<Node>()));
+                let mut label = Label::new_alloc();
+                label.set_text(&to_fixed_places(instrument.note_density(&song_info) as f64, 2, false));
+                grid.add_child(Some(&label.upcast::<Node>()));
             }
         }
     }
 
     #[func]
     fn emit_song_selected(&mut self, folder: Variant, instrument: Variant) {
-        self.base.emit_signal("song_selected".into(), &[folder, instrument]);
+        self.base_mut().emit_signal("song_selected", &[folder, instrument]);
     }
 }
 
@@ -1043,12 +1062,12 @@ impl IVBoxContainer for SongList {
             .into_iter()
             .map(|song| Row {
                 controls: vec![
-                    create_label(&song.song_name, &song.id, self.base.callable("on_row_input")),
-                    create_label(&song.artist, &song.id, self.base.callable("on_row_input")),
-                    create_label(&song.album, &song.id, self.base.callable("on_row_input")),
-                    create_label(&song.year.map(|y| y.to_string()).unwrap_or_default(), &song.id, self.base.callable("on_row_input")),
-                    create_label(&to_min_sec(song.length as f64, false), &song.id, self.base.callable("on_row_input")),
-                    create_label(&song.instrument_chars(), &song.id, self.base.callable("on_row_input")),
+                    create_label(&song.song_name, &song.id, self.base_mut().callable("on_row_input")),
+                    create_label(&song.artist, &song.id, self.base_mut().callable("on_row_input")),
+                    create_label(&song.album, &song.id, self.base_mut().callable("on_row_input")),
+                    create_label(&song.year.map(|y| y.to_string()).unwrap_or_default(), &song.id, self.base_mut().callable("on_row_input")),
+                    create_label(&to_min_sec(song.length as f64, false), &song.id, self.base_mut().callable("on_row_input")),
+                    create_label(&song.instrument_chars(), &song.id, self.base_mut().callable("on_row_input")),
                 ],
                 song,
                 selected: false,
@@ -1057,29 +1076,29 @@ impl IVBoxContainer for SongList {
 
         if let Some(display) = &self.song_display {
             if let Some(mut split) = self
-                .base
-                .get_node_as::<VBoxContainer>("HSplitContainer/VBoxContainerDetails")
+                .base_mut()
+                .try_get_node_as::<VBoxContainer>("HSplitContainer/VBoxContainerDetails")
             {
-                split.add_child(display.clone().upcast());
+                split.add_child(Some(&display.clone().upcast::<Node>()));
             }
         }
 
-        let mut group = ButtonGroup::new();
-        group.connect("pressed".into(), self.base.callable("Heading_Pressed"));
-        if let Some(mut grid) = self.base.get_node_as::<GridContainer>("%GridContainer") {
+        let mut group = ButtonGroup::new_gd();
+        group.connect("pressed", &self.base_mut().callable("Heading_Pressed"));
+        if let Some(mut grid) = self.base_mut().try_get_node_as::<GridContainer>("%GridContainer") {
             let headings = ["Song Name", "Artist", "Album", "Year", "Length", "Parts"];
             grid.set_columns(headings.len() as i32);
             for heading in headings.iter() {
-                let mut button = Button::new();
-                button.set_text(heading.to_string().into());
-                button.set_button_group(group.clone());
+                let mut button = Button::new_alloc();
+                button.set_text(heading);
+                button.set_button_group(Some(&group));
                 button.set_toggle_mode(true);
-                grid.add_child(button.upcast());
+                grid.add_child(Some(&button.upcast::<Node>()));
             }
         }
 
-        if let Some(mut tuning_select) = self.base.get_node_as::<OptionButton>("HBoxContainer/TuningOptionButton") {
-            tuning_select.add_item("".into());
+        if let Some(mut tuning_select) = self.base_mut().try_get_node_as::<OptionButton>("HBoxContainer/TuningOptionButton") {
+            tuning_select.add_item("");
             let tunings = self
                 .rows
                 .iter()
@@ -1087,7 +1106,7 @@ impl IVBoxContainer for SongList {
                 .map(|inst| Instrument::calc_tuning_name(inst.tuning, inst.capo_fret))
                 .unique();
             for tuning in tunings {
-                tuning_select.add_item(tuning.into());
+                tuning_select.add_item(tuning.as_str());
             }
         }
 
@@ -1107,26 +1126,26 @@ impl SongList {
 
     #[func]
     fn row_selected(&mut self, folder: GString) {
-        self.base.emit_signal("song_selected".into(), &[folder.to_variant()]);
+        self.base_mut().emit_signal("song_selected", &[folder.to_variant()]);
     }
 
     #[func]
     fn on_row_input(&mut self, event: Gd<InputEvent>, folder: GString) {
         if let Some(event) = event.try_cast::<InputEventMouseButton>() {
             if event.is_pressed() && event.get_button_index() == MouseButton::LEFT {
-                self.base.emit_signal("song_selected".into(), &[folder.to_variant()]);
+                self.base_mut().emit_signal("song_selected", &[folder.to_variant()]);
             }
         }
     }
 
     fn load_table_rows(&mut self) {
-        if let Some(mut grid) = self.base.get_node_as::<GridContainer>("%GridContainer") {
+        if let Some(mut grid) = self.base_mut().try_get_node_as::<GridContainer>("%GridContainer") {
             for row in &self.rows {
                 for control in &row.controls {
                     if control.get_parent().is_some() {
-                        grid.remove_child(control.clone().upcast());
+                        grid.remove_child(Some(&control.clone().upcast::<Node>()));
                     }
-                    grid.add_child(control.clone().upcast());
+                    grid.add_child(Some(&control.clone().upcast::<Node>()));
                 }
             }
         }
@@ -1134,8 +1153,8 @@ impl SongList {
 
     fn load_table_filter(&mut self) {
         let capo_shown = self
-            .base
-            .get_node_as::<CheckBox>("HBoxContainer/CapoCheckBox")
+            .base_mut()
+            .try_get_node_as::<CheckBox>("HBoxContainer/CapoCheckBox")
             .map(|checkbox| checkbox.is_pressed())
             .unwrap_or(false);
         let mut count_shown = 0;
@@ -1157,15 +1176,15 @@ impl SongList {
                 count_shown += 1;
             }
         }
-        if let Some(mut label) = self.base.get_node_as::<Label>("HBoxContainer/SongsLoadedLabel") {
-            label.set_text(format!("{count_shown} songs shown").into());
+        if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("HBoxContainer/SongsLoadedLabel") {
+            label.set_text(&format!("{count_shown} songs shown"));
         }
     }
 
     #[func]
     #[allow(non_snake_case)]
     fn TuningSelected(&mut self, index: i64) {
-        if let Some(tuning_select) = self.base.get_node_as::<OptionButton>("HBoxContainer/TuningOptionButton") {
+        if let Some(tuning_select) = self.base_mut().try_get_node_as::<OptionButton>("HBoxContainer/TuningOptionButton") {
             let record = tuning_select.get_item_text(index as i32);
             self.tuning_filter = record.to_string();
             self.load_table_filter();
@@ -1211,7 +1230,7 @@ impl SongList {
         }
         let index = (rand::random::<f32>() * valid_songs.len() as f32) as usize;
         let song = &valid_songs[index];
-        self.base.emit_signal("song_selected".into(), &[song.song.id.to_variant()]);
+        self.base_mut().emit_signal("song_selected", &[song.song.id.to_variant()]);
     }
 
     #[func]
@@ -1224,10 +1243,11 @@ impl SongList {
  
 
 fn create_label(text: &str, folder: &str, callable: Callable) -> Gd<Control> {
-    let mut label = Label::new();
-    label.set_text(fixed_width_string(text, 30).into());
+    let mut label = Label::new_alloc();
+    label.set_text(&fixed_width_string(text, 30));
     label.set_mouse_filter(Control::MouseFilter::Stop);
-    label.connect("gui_input".into(), callable.bind(folder.to_variant()));
+    let args = [folder.to_variant()];
+    label.connect("gui_input", &callable.bind(&args));
     label.upcast()
 }
 
@@ -1239,7 +1259,7 @@ pub struct SongScene {
     state: Option<SongState>,
     audio_stream: Option<Gd<AudioStreamWav>>,
     player: Option<Gd<AudioStreamPlayer>>,
-    cached_song_position: Option<f64>,
+    cached_song_position: Cell<Option<f64>>,
     note_graph_scene: Option<Gd<NoteMiniGraph>>,
     song_chart_scene: Option<Gd<SongChart>>,
     a_position: f64,
@@ -1254,7 +1274,7 @@ impl INode for SongScene {
             state: None,
             audio_stream: None,
             player: None,
-            cached_song_position: None,
+            cached_song_position: Cell::new(None),
             note_graph_scene: None,
             song_chart_scene: None,
             a_position: 0.0,
@@ -1265,9 +1285,9 @@ impl INode for SongScene {
     fn ready(&mut self) {
         if let Some(state) = &self.state {
             self.set_ui_labels(state);
-            if let Some(mut player) = self.base.get_node_as::<AudioStreamPlayer>("AudioStreamPlayer") {
+            if let Some(mut player) = self.base_mut().try_get_node_as::<AudioStreamPlayer>("AudioStreamPlayer") {
                 if let Some(stream) = &self.audio_stream {
-                    player.set_stream(stream.clone().upcast());
+                    player.set_stream(Some(&stream.clone().upcast::<AudioStream>()));
                 }
                 player.play();
                 self.player = Some(player.clone());
@@ -1278,24 +1298,34 @@ impl INode for SongScene {
                 chart.state = Some(state.clone());
                 chart.audio_player = player.clone();
             });
-            self.base.add_child(guitar_chart.clone().upcast());
+            self.base_mut().add_child(Some(&guitar_chart.clone().upcast::<Node>()));
 
             self.load_instrument_from_state();
         }
     }
 
     fn process(&mut self, delta: f64) {
-        self.cached_song_position = None;
+        self.cached_song_position.set(None);
         let song_position = self.get_song_position();
-        if let Some(mut label) = self.base.get_node_as::<Label>("GridContainer/ABLabelStart") {
-            label.set_text(if self.a_position == 0.0 { "".into() } else { to_min_sec(self.a_position, true).into() });
+        if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("GridContainer/ABLabelStart") {
+            let text = if self.a_position == 0.0 {
+                String::new()
+            } else {
+                to_min_sec(self.a_position, true)
+            };
+            label.set_text(text.as_str());
         }
-        if let Some(mut label) = self.base.get_node_as::<Label>("GridContainer/ABLabelEnd") {
-            label.set_text(if self.b_position == 0.0 { "".into() } else { to_min_sec(self.b_position, true).into() });
+        if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("GridContainer/ABLabelEnd") {
+            let text = if self.b_position == 0.0 {
+                String::new()
+            } else {
+                to_min_sec(self.b_position, true)
+            };
+            label.set_text(text.as_str());
         }
         if self.a_position != 0.0 && self.b_position != 0.0 {
             if self.a_position < song_position && delta + song_position > self.b_position {
-                if let Some(player) = &self.player {
+                if let Some(player) = self.player.as_mut() {
                     player.set_stream_paused(false);
                     player.seek(self.a_position as f32);
                 }
@@ -1308,11 +1338,11 @@ impl INode for SongScene {
         }
         if let Some(state) = &self.state {
             if let Some(next_note) = self.next_note_block(state, song_position) {
-                if let Some(mut label) = self.base.get_node_as::<Label>("GridContainer/SkipToNextLabel2") {
-                    label.set_text(format!("at {}", to_min_sec(next_note.time as f64, false)).into());
+                if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("GridContainer/SkipToNextLabel2") {
+                    label.set_text(&format!("at {}", to_min_sec(next_note.time as f64, false)));
                 }
             }
-            if let Some(mut details) = self.base.get_node_as::<Label>("DetailsVBoxContainer/SongDetailsLabel") {
+            if let Some(mut details) = self.base_mut().try_get_node_as::<Label>("DetailsVBoxContainer/SongDetailsLabel") {
                 let instrument = state.instrument();
                 let note_text = if let Some(next_note) = self.next_note_block(state, song_position) {
                     format!(
@@ -1323,32 +1353,32 @@ impl INode for SongScene {
                 } else {
                     "No note".to_string()
                 };
-                details.set_text(format!(
+                details.set_text(&format!(
                     "---------\nTuning: {}\nNotes: {}\nChords: {}\nFirst note @ {}\nLast note @ {}\n---------\n{note_text}\n",
                     Instrument::calc_tuning_name(instrument.config.tuning, instrument.config.capo_fret),
                     instrument.single_note_count(),
                     instrument.chord_count(),
                     to_min_sec(instrument.notes.first().map(|n| n.time as f64).unwrap_or(0.0), false),
                     to_min_sec(instrument.notes.last().map(|n| n.time as f64).unwrap_or(0.0), false),
-                ).into());
+                ));
             }
-            if let Some(mut label) = self.base.get_node_as::<Label>("RunningDetailsLabel") {
-                label.set_text(format!(
+            if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("RunningDetailsLabel") {
+                label.set_text(&format!(
                     "{}fps | {:03.1}ms\n{}",
                     Engine::get_frames_per_second(),
                     delta * 1000.0,
                     to_min_sec(song_position, true)
-                ).into());
+                ));
             }
-            if let Some(mut lyrics_label) = self.base.get_node_as::<RichTextLabel>("HBoxContainer/LyricsLabel") {
+            if let Some(mut lyrics_label) = self.base_mut().try_get_node_as::<RichTextLabel>("HBoxContainer/LyricsLabel") {
                 self.update_lyrics(state, song_position, &mut lyrics_label);
             }
-            if let Some(mut pos_line) = self.base.get_node_as::<LineEdit>("GridContainer/PositionSetLineEdit") {
-                pos_line.set_text(to_min_sec(song_position, true).into());
+            if let Some(mut pos_line) = self.base_mut().try_get_node_as::<LineEdit>("GridContainer/PositionSetLineEdit") {
+                pos_line.set_text(&to_min_sec(song_position, true));
             }
-            if let Some(mut speed_label) = self.base.get_node_as::<Label>("GridContainer/SongSpeedLabel") {
+            if let Some(mut speed_label) = self.base_mut().try_get_node_as::<Label>("GridContainer/SongSpeedLabel") {
                 if let Some(player) = &self.player {
-                    speed_label.set_text(format!("{:.1}%", player.get_pitch_scale() * 100.0).into());
+                    speed_label.set_text(&format!("{:.1}%", player.get_pitch_scale() * 100.0));
                 }
             }
         }
@@ -1361,8 +1391,8 @@ impl SongScene {
     fn closed();
 
     pub fn init(&mut self, state: SongState) {
-        let mut stream = AudioStreamWav::new();
-        stream.set_format(AudioStreamWav::FORMAT_16_BITS);
+        let mut stream = AudioStreamWav::new_gd();
+        stream.set_format(audio_stream_wav::Format::FORMAT_16_BITS);
         stream.set_mix_rate(state.audio_sample_rate);
         stream.set_stereo(state.audio_channels >= 2);
         stream.set_data(PackedByteArray::from(state.audio.clone()));
@@ -1381,8 +1411,8 @@ impl SongScene {
                 .map(|inst| inst.name.clone());
             if let Some(name) = instrument {
                 state.instrument_name = name.clone();
-                if let Some(mut list) = self.base.get_node_as::<MenuButton>("DetailsVBoxContainer/VBoxContainer/InstrumentMenuButton") {
-                    list.set_text(name.into());
+                if let Some(mut list) = self.base_mut().try_get_node_as::<MenuButton>("DetailsVBoxContainer/VBoxContainer/InstrumentMenuButton") {
+                    list.set_text(name.as_str());
                 }
                 self.load_instrument_from_state();
             }
@@ -1391,7 +1421,7 @@ impl SongScene {
 
     fn load_instrument_from_state(&mut self) {
         if let Some(mut note_graph) = self.note_graph_scene.take() {
-            self.base.remove_child(note_graph.clone().upcast());
+            self.base_mut().remove_child(Some(&note_graph.clone().upcast::<Node>()));
         }
         if let Some(state) = &self.state {
             let player = self.player.clone();
@@ -1399,39 +1429,39 @@ impl SongScene {
                 graph.song_state = Some(state.clone());
                 graph.audio_player = player.clone();
             });
-            self.base.add_child(note_graph.clone().upcast());
+            self.base_mut().add_child(Some(&note_graph.clone().upcast::<Node>()));
             self.note_graph_scene = Some(note_graph);
 
             if let Some(mut song_chart) = self.song_chart_scene.take() {
-                self.base.remove_child(song_chart.clone().upcast());
+                self.base_mut().remove_child(Some(&song_chart.clone().upcast::<Node>()));
             }
             let mut song_chart = Gd::<SongChart>::from_init_fn(|mut chart| {
                 chart.instrument = Some(state.instrument().clone());
             });
-            self.base.add_child(song_chart.clone().upcast());
+            self.base_mut().add_child(Some(&song_chart.clone().upcast::<Node>()));
             self.song_chart_scene = Some(song_chart);
         }
     }
 
     fn set_ui_labels(&mut self, state: &SongState) {
-        if let Some(mut info_label) = self.base.get_node_as::<Label>("DetailsVBoxContainer/SongInfoLabel") {
-            info_label.set_text(format!(
+        if let Some(mut info_label) = self.base_mut().try_get_node_as::<Label>("DetailsVBoxContainer/SongInfoLabel") {
+            info_label.set_text(&format!(
                 "{} ({:?})\n{}\n{}",
                 state.song_info.metadata.name,
                 state.song_info.metadata.year,
                 state.song_info.metadata.artist,
                 state.song_info.metadata.album
-            ).into());
+            ));
         }
-        if let Some(mut instrument_list) = self.base.get_node_as::<MenuButton>("DetailsVBoxContainer/VBoxContainer/InstrumentMenuButton") {
-            instrument_list.set_text(state.instrument().name.clone().into());
+        if let Some(mut instrument_list) = self.base_mut().try_get_node_as::<MenuButton>("DetailsVBoxContainer/VBoxContainer/InstrumentMenuButton") {
+            instrument_list.set_text(state.instrument().name.as_str());
             if let Some(mut popup) = instrument_list.get_popup() {
                 popup.clear();
                 for instrument in &state.song_info.instruments {
-                    popup.add_item(instrument.name.clone().into());
+                    popup.add_item(instrument.name.clone());
                 }
                 popup.set_item_checked(state.song_info.main_instrument_index as i32, true);
-                popup.connect("id_pressed".into(), self.base.callable("InstrumentChanged"));
+                popup.connect("id_pressed", &self.base_mut().callable("InstrumentChanged"));
             }
         }
     }
@@ -1439,7 +1469,7 @@ impl SongScene {
     #[func]
     #[allow(non_snake_case)]
     fn PauseButton_Pressed(&mut self) {
-        if let Some(player) = &self.player {
+        if let Some(player) = self.player.as_ref() {
             if player.is_stream_paused() {
                 self.resume();
             } else {
@@ -1449,13 +1479,13 @@ impl SongScene {
     }
 
     fn pause(&mut self) {
-        if let Some(player) = &self.player {
+        if let Some(player) = self.player.as_mut() {
             player.set_stream_paused(true);
         }
     }
 
     fn resume(&mut self) {
-        if let Some(player) = &self.player {
+        if let Some(player) = self.player.as_mut() {
             player.set_stream_paused(false);
         }
     }
@@ -1464,10 +1494,10 @@ impl SongScene {
     #[allow(non_snake_case)]
     fn Quit(&mut self) {
         self.pause();
-        if let Some(player) = &self.player {
+        if let Some(player) = self.player.as_mut() {
             player.stop();
         }
-        self.base.emit_signal("closed".into(), &[]);
+        self.base_mut().emit_signal("closed", &[]);
     }
 
     #[func]
@@ -1533,7 +1563,7 @@ impl SongScene {
     #[func]
     #[allow(non_snake_case)]
     fn SongFinished(&mut self) {
-        if let Some(player) = &self.player {
+        if let Some(player) = self.player.as_mut() {
             player.play();
             player.seek(0.0);
             player.set_stream_paused(true);
@@ -1543,49 +1573,51 @@ impl SongScene {
 
     #[func]
     fn _input(&mut self, event: Gd<InputEvent>) {
-        if event.is_action_pressed("ui_cancel".into()) {
+        if event.is_action_pressed("ui_cancel") {
             self.Quit();
-        } else if event.is_action_pressed("song_pause".into()) {
+        } else if event.is_action_pressed("song_pause") {
             self.PauseButton_Pressed();
-        } else if event.is_action_pressed("song_skip_forward_10".into()) {
+        } else if event.is_action_pressed("song_skip_forward_10") {
             self.skip_10_sec();
-        } else if event.is_action_pressed("song_skip_backward_10".into()) {
+        } else if event.is_action_pressed("song_skip_backward_10") {
             self.back_10_sec();
-        } else if event.is_action_pressed("song_skip_to_next".into()) {
+        } else if event.is_action_pressed("song_skip_to_next") {
             self.skip_to_next();
-        } else if event.is_action_pressed("song_restart".into()) {
+        } else if event.is_action_pressed("song_restart") {
             self.restart_song();
-        } else if event.is_action_pressed("song_speed_down".into()) {
+        } else if event.is_action_pressed("song_speed_down") {
             self.slow_down();
-        } else if event.is_action_pressed("song_speed_up".into()) {
+        } else if event.is_action_pressed("song_speed_up") {
             self.speed_up();
-        } else if event.is_action_pressed("song_set_loop_start".into()) {
+        } else if event.is_action_pressed("song_set_loop_start") {
             self.pick_a();
-        } else if event.is_action_pressed("song_set_loop_end".into()) {
+        } else if event.is_action_pressed("song_set_loop_end") {
             self.pick_b();
-        } else if event.is_action_pressed("song_reset_loop".into()) {
+        } else if event.is_action_pressed("song_reset_loop") {
             self.clear_loop_times();
-        } else if event.is_action_pressed("song_reset_speed".into()) {
+        } else if event.is_action_pressed("song_reset_speed") {
             self.reset_song_speed();
         }
     }
 
     fn skip_10_sec(&mut self) {
-        if let Some(player) = &self.player {
-            player.seek((self.get_song_position() + 10.0) as f32);
+        let pos = self.get_song_position() + 10.0;
+        if let Some(player) = self.player.as_mut() {
+            player.seek(pos as f32);
         }
     }
 
     fn back_10_sec(&mut self) {
-        if let Some(player) = &self.player {
-            player.seek((self.get_song_position() - 10.0) as f32);
+        let pos = self.get_song_position() - 10.0;
+        if let Some(player) = self.player.as_mut() {
+            player.seek(pos as f32);
         }
     }
 
     fn skip_to_next(&mut self) {
         if let Some(state) = &self.state {
             if let Some(next_note) = self.next_note_block(state, self.get_song_position()) {
-                if let Some(player) = &self.player {
+                if let Some(player) = self.player.as_mut() {
                     player.seek(next_note.time - 1.5);
                 }
             }
@@ -1593,7 +1625,7 @@ impl SongScene {
     }
 
     fn restart_song(&mut self) {
-        if let Some(player) = &self.player {
+        if let Some(player) = self.player.as_mut() {
             player.seek(0.0);
         }
     }
@@ -1607,7 +1639,7 @@ impl SongScene {
     }
 
     fn adjust_pitch(&mut self, amount: f32) {
-        if let Some(player) = &self.player {
+        if let Some(player) = self.player.as_ref() {
             if player.get_pitch_scale() < 0.5 && amount < 1.0 {
                 return;
             }
@@ -1623,14 +1655,14 @@ impl SongScene {
     }
 
     fn set_song_speed(&mut self, fraction: f32) {
-        if let Some(player) = &self.player {
+        if let Some(player) = self.player.as_mut() {
             player.set_pitch_scale(fraction);
             if fraction == 1.0 {
-                player.set_bus("Master".into());
+                player.set_bus("Master");
             } else {
-                player.set_bus("SongPlayback".into());
+                player.set_bus("SongPlayback");
             }
-            let bus_id = AudioServer::singleton().get_bus_index("SongPlayback".into());
+            let bus_id = AudioServer::singleton().get_bus_index("SongPlayback");
             if let Some(mut effect) = AudioServer::singleton()
                 .get_bus_effect(bus_id, 0)
                 .and_then(|e| e.try_cast::<AudioEffectPitchShift>())
@@ -1656,7 +1688,7 @@ impl SongScene {
     #[func]
     #[allow(non_snake_case)]
     fn MoveSongPosition(&mut self) {
-        if let Some(mut line_edit) = self.base.get_node_as::<LineEdit>("GridContainer/PositionSetLineEdit") {
+        if let Some(mut line_edit) = self.base_mut().try_get_node_as::<LineEdit>("GridContainer/PositionSetLineEdit") {
             let text = line_edit.get_text().to_string();
             let mut pos = text.parse::<f32>().unwrap_or(0.0);
             if pos == 0.0 {
@@ -1667,7 +1699,7 @@ impl SongScene {
             if pos <= 0.0 {
                 return;
             }
-            if let Some(player) = &self.player {
+            if let Some(player) = self.player.as_mut() {
                 if pos > player.get_stream().map(|s| s.get_length()).unwrap_or(0.0) {
                     return;
                 }
@@ -1678,21 +1710,25 @@ impl SongScene {
         }
     }
 
-    pub fn get_song_position(&mut self) -> f64 {
-        if let Some(cached) = self.cached_song_position {
+    pub fn get_song_position(&self) -> f64 {
+        if let Some(cached) = self.cached_song_position.get() {
             return cached;
         }
         if let Some(player) = &self.player {
             let mut time = calculate_song_position(player);
             time -= SettingsService::settings().audio_position_offset_ms / 1000.0;
-            self.cached_song_position = Some(time);
+            self.cached_song_position.set(Some(time));
             return time;
         }
         0.0
     }
 
-    fn next_note_block(&self, state: &SongState, song_pos: f64) -> Option<&NoteBlock> {
-        state.instrument().notes.iter().find(|n| n.time as f64 > song_pos)
+    fn next_note_block<'a>(&self, state: &'a SongState, song_pos: f64) -> Option<&'a NoteBlock> {
+        state
+            .instrument()
+            .notes
+            .iter()
+            .find(|n| n.time as f64 > song_pos)
     }
 
     fn update_lyrics(&self, state: &SongState, song_pos: f64, label: &mut Gd<RichTextLabel>) {
@@ -1700,7 +1736,7 @@ impl SongScene {
         label.push_font_size(40);
         let lines = current_lines(state, song_pos);
         if lines.is_empty() {
-            label.set_text("".into());
+            label.set_text("");
             return;
         }
         if let Some(line) = lines.get(0) {
@@ -1711,7 +1747,7 @@ impl SongScene {
             label.add_text(part_b.into());
         }
         if let Some(line) = lines.get(1) {
-            label.add_text(format!("\n{}", line.text()).into());
+            label.add_text(format!("\n{}", line.text()));
         }
     }
 }
@@ -1772,21 +1808,21 @@ impl INode3D for GuitarChart {
     }
 
     fn ready(&mut self) {
-        let mut material = StandardMaterial3D::new();
+        let mut material = StandardMaterial3D::new_gd();
         material.set_albedo_color(Color::from_rgb(0.82, 0.71, 0.55));
-        let mut plane_mesh = PlaneMesh::new();
+        let mut plane_mesh = PlaneMesh::new_gd();
         plane_mesh.set_size(Vector2::new(6.0, 6.0));
         plane_mesh.set_center_offset(Vector3::new(2.5, 0.0, -3.0));
-        plane_mesh.set_material(material.upcast());
-        let mut plane = MeshInstance3D::new();
+        plane_mesh.set_material(Some(&material.upcast::<Material>()));
+        let mut plane = MeshInstance3D::new_alloc();
         plane.set_transform(Transform3D::new(
             Basis::from_rows(Vector3::new(0.0, -1.0, 0.0), Vector3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0)),
             Vector3::ZERO,
         ));
-        plane.set_mesh(plane_mesh.upcast());
-        self.base.add_child(plane.upcast());
+        plane.set_mesh(Some(&plane_mesh.upcast::<Mesh>()));
+        self.base_mut().add_child(Some(&plane.upcast::<Node>()));
 
-        let mut camera = Camera3D::new();
+        let mut camera = Camera3D::new_alloc();
         camera.set_fov(60.0);
         camera.set_transform(Transform3D::new(
             Basis::from_rows(
@@ -1796,9 +1832,9 @@ impl INode3D for GuitarChart {
             ),
             Vector3::new(-12.0, 10.0, 8.0),
         ));
-        self.base.add_child(camera.upcast());
+        self.base_mut().add_child(Some(&camera.upcast::<Node>()));
 
-        let mut light = DirectionalLight3D::new();
+        let mut light = DirectionalLight3D::new_alloc();
         light.set_transform(Transform3D::new(
             Basis::from_rows(
                 Vector3::new(-0.177838, 0.752991, -0.633544),
@@ -1807,38 +1843,38 @@ impl INode3D for GuitarChart {
             ),
             Vector3::ZERO,
         ));
-        self.base.add_child(light.upcast());
+        self.base_mut().add_child(Some(&light.upcast::<Node>()));
 
         if let Some(state) = &self.state {
             for i in 0..6 {
                 let colour = SettingsService::get_color_from_string_num(i);
-                let mut string_material = StandardMaterial3D::new();
+                let mut string_material = StandardMaterial3D::new_gd();
                 string_material.set_albedo_color(colour);
-                let mut string_mesh = BoxMesh::new();
+                let mut string_mesh = BoxMesh::new_gd();
                 string_mesh.set_size(Vector3::new(0.08, 0.08, 50.0));
-                string_mesh.set_material(string_material.upcast());
-                let mut string_obj = MeshInstance3D::new();
+                string_mesh.set_material(Some(&string_material.upcast::<Material>()));
+                let mut string_obj = MeshInstance3D::new_alloc();
                 string_obj.set_transform(Transform3D::new(
                     Basis::IDENTITY,
                     Vector3::new(0.0, DisplayConst::calc_note_height_y(i as i32), 25.0),
                 ));
-                string_obj.set_mesh(string_mesh.upcast());
-                self.base.add_child(string_obj.upcast());
+                string_obj.set_mesh(Some(&string_mesh.upcast::<Mesh>()));
+                self.base_mut().add_child(Some(&string_obj.upcast::<Node>()));
             }
 
-            let mut fret_material = StandardMaterial3D::new();
+            let mut fret_material = StandardMaterial3D::new_gd();
             fret_material.set_albedo_color(Color::from_rgb(0.82, 0.71, 0.55));
-            let mut fret_mesh = BoxMesh::new();
+            let mut fret_mesh = BoxMesh::new_gd();
             fret_mesh.set_size(Vector3::new(0.03, 5.0 + DisplayConst::TRACK_BOTTOM_WORLD.abs() * 2.0, 0.03));
-            fret_mesh.set_material(fret_material.upcast());
+            fret_mesh.set_material(Some(&fret_material.upcast::<Material>()));
             for i in 0..25 {
-                let mut fret_obj = MeshInstance3D::new();
+                let mut fret_obj = MeshInstance3D::new_alloc();
                 fret_obj.set_transform(Transform3D::new(
                     Basis::IDENTITY,
                     Vector3::new(0.0, 2.5, DisplayConst::calc_fret_pos_z(i)),
                 ));
-                fret_obj.set_mesh(fret_mesh.clone().upcast());
-                self.base.add_child(fret_obj.upcast());
+                fret_obj.set_mesh(Some(&fret_mesh.clone().upcast::<Mesh>()));
+                self.base_mut().add_child(Some(&fret_obj.upcast::<Node>()));
             }
         }
     }
@@ -1847,7 +1883,8 @@ impl INode3D for GuitarChart {
         let song_pos = self.audio_player.as_ref().map(|player| calculate_song_position(player)).unwrap_or(0.0);
         if let Some(state) = &self.state {
             if let Some(note_block) = state.instrument().notes.iter().find(|b| b.time as f64 > song_pos) {
-                if let Some(mut cam) = self.base.get_tree().and_then(|tree| tree.get_root().and_then(|root| root.get_camera_3d())) {
+                let tree = self.base_mut().get_tree();
+                if let Some(mut cam) = tree.get_root().and_then(|root| root.get_camera_3d()) {
                     let cam_move_speed = SettingsService::settings().camera_aim_speed as f64 / 50.0;
                     let want_pos = DisplayConst::calc_middle_window_z(note_block.fret_window_start, note_block.fret_window_length);
                     let new_z = cam.get_position().z * (1.0 - delta * cam_move_speed as f64) + want_pos as f64 * delta * cam_move_speed as f64;
@@ -1858,8 +1895,8 @@ impl INode3D for GuitarChart {
                     if let Some(node) = &self.last_note_block_node {
                         node.queue_free();
                     }
-                    let mut block_node = Node3D::new();
-                    self.base.add_child(block_node.clone().upcast());
+                    let mut block_node = Node3D::new_alloc();
+                    self.base_mut().add_child(Some(&block_node.clone().upcast::<Node>()));
                     for note in &note_block.notes {
                         let note_node = NoteGenerator::get_basic_note(
                             note,
@@ -1868,7 +1905,7 @@ impl INode3D for GuitarChart {
                             note_block.fret_window_start,
                             note_block.fret_window_length,
                         );
-                        block_node.add_child(note_node);
+                        block_node.add_child(Some(&note_node.upcast::<Node>()));
                     }
                     self.last_note_block_node = Some(block_node);
                 }
@@ -1915,7 +1952,7 @@ impl INode2D for NoteMiniGraph {
     fn ready(&mut self) {
         if let Some(state) = &self.song_state {
             let string_colours = SettingsService::settings().string_colours;
-            let window = self.base.get_viewport().unwrap().get_visible_rect();
+            let window = self.base_mut().get_viewport().unwrap().get_visible_rect();
             let left_offset = (0.07 * window.size.x) as i32;
             let note_offset = ((1.0 - 0.07 * 2.0) * window.size.x) as i32;
             let mut image = Image::create_empty(window.size.x as i32, window.size.y as i32, false, Image::FORMAT_RGBA8);
@@ -1937,14 +1974,14 @@ impl INode2D for NoteMiniGraph {
 
     fn draw(&mut self) {
         if let Some(texture) = &self.note_plot_image {
-            self.base.draw_texture(texture.clone(), Vector2::ZERO, Color::from_rgb(1.0, 1.0, 1.0));
+            self.base_mut().draw_texture(texture.clone(), Vector2::ZERO, Color::from_rgb(1.0, 1.0, 1.0));
         }
         if let (Some(state), Some(player)) = (&self.song_state, &self.audio_player) {
-            let window = self.base.get_viewport().unwrap().get_visible_rect();
+            let window = self.base_mut().get_viewport().unwrap().get_visible_rect();
             let left_offset = (0.07 * window.size.x) as f32;
             let note_offset = (1.0 - 0.07 * 2.0) * window.size.x;
             let pos_x = left_offset + note_offset * calculate_song_position(player) as f32 / state.song_info.metadata.song_length;
-            self.base.draw_line(
+            self.base_mut().draw_line(
                 Vector2::new(pos_x, window.size.y - 30.0),
                 Vector2::new(pos_x, window.size.y - 30.0 - 24.0 * 3.0),
                 Color::from_rgb(1.0, 1.0, 1.0),
@@ -1957,7 +1994,7 @@ impl INode2D for NoteMiniGraph {
     fn process(&mut self, _delta: f64) {
         if let Some(player) = &self.audio_player {
             if calculate_song_position(player) > 0.0 {
-                self.base.queue_redraw();
+                self.base_mut().queue_redraw();
             }
         }
     }
@@ -1994,7 +2031,7 @@ impl INode3D for SongChart {
         if let Some(instrument) = &self.instrument {
             let items = self.load_notes(instrument);
             for item in items {
-                self.base.add_child(item);
+                self.base_mut().add_child(Some(&item.upcast::<Node>()));
             }
         }
     }

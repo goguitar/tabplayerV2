@@ -1,6 +1,6 @@
 use crate::models::*;
 use crate::vgmstream::{Vgmstream, VgmstreamError};
-use godot::classes::OS;
+use godot::classes::Os;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -679,7 +679,7 @@ fn sanitize_id(artist: &str, song: &str) -> String {
 }
 
 fn sources_file_path() -> PathBuf {
-    let os = OS::singleton();
+    let os = Os::singleton();
     let base = os.get_user_data_dir().to_string();
     PathBuf::from(base).join("song_sources.json")
 }

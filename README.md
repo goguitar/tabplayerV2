@@ -23,7 +23,7 @@ See the MiiChannel song, note the strings and note preview at: https://www.murph
 
 -   [godot-rust/gdext v0.5.2](https://github.com/godot-rust/gdext/releases/tag/v0.5.2) for Godot scripting
 -   [Rocksmith2014.rs](https://github.com/santzit/rocksmith2014.rs) for PSARC/SNG/XML parsing
--   [vgmstream r2083](https://github.com/vgmstream/vgmstream/releases/tag/r2083) shared library for WEM → WAV decoding
+-   [vgmstream r2083](https://github.com/vgmstream/vgmstream/releases/tag/r2083) WAV-only shared library for WEM → WAV decoding (Rust FFI)
 
 ### Building the GDExtension
 
@@ -40,7 +40,7 @@ The resulting shared library is loaded from:
 
 ### vgmstream shared library
 
-The Linux `libvgmstream.so` (r2083) is vendored under `third_party/vgmstream/linux/`.
+The Linux `libvgmstream.so` (r2083, WAV-only build) is vendored under `third_party/vgmstream/linux/`.
 For other platforms, build and drop the corresponding shared library into:
 
 - `third_party/vgmstream/windows/libvgmstream.dll`

@@ -1,8 +1,9 @@
 use crate::models::{note_symbols, InstrumentConfig, NoteBlock, NoteBlockFlags, NoteType, SingleNote};
 use godot::classes::{
-    AudioServer, BoxMesh, Control, Label3D, MeshInstance3D, OS, PlaneMesh, SceneTree,
-    StandardMaterial3D, Tween,
+    AudioServer, BoxMesh, Control, Label3D, Material, Mesh, MeshInstance3D, Os, PlaneMesh,
+    SceneTree, StandardMaterial3D,
 };
+use godot::classes::tween;
 use godot::builtin::Color;
 use godot::prelude::*;
 use parking_lot::Mutex;
@@ -18,7 +19,7 @@ pub struct TweenHelper {
     initial_prop: Variant,
     final_prop: Variant,
     pub speed: f64,
-    pub transition: Tween::TransitionType,
+    pub transition: tween::TransitionType,
 }
 
 impl TweenHelper {
@@ -36,7 +37,7 @@ impl TweenHelper {
             initial_prop: initial,
             final_prop: final_value,
             speed: 1.0,
-            transition: Tween::TransitionType::Quad,
+            transition: tween::TransitionType::QUAD,
         }
     }
 
@@ -128,7 +129,7 @@ impl SettingsService {
 }
 
 fn settings_path() -> PathBuf {
-    let base = OS::singleton().get_user_data_dir().to_string();
+    let base = Os::singleton().get_user_data_dir().to_string();
     PathBuf::from(base).join("settings.json")
 }
 
@@ -249,20 +250,20 @@ pub struct MeshGenerator;
 
 impl MeshGenerator {
     pub fn box_line(color: Color, start: Vector3, end: Vector3) -> Gd<MeshInstance3D> {
-        let mut mat = StandardMaterial3D::new();
+        let mut mat = StandardMaterial3D::new_gd();
         mat.set_albedo_color(color);
         let length = (end - start).length();
-        let mut mesh = BoxMesh::new();
+        let mut mesh = BoxMesh::new_gd();
         mesh.set_size(Vector3::new(length, 0.1, 0.1));
-        mesh.set_material(mat.upcast());
-        let mut mesh_obj = MeshInstance3D::new();
+        mesh.set_material(Some(&mat.upcast::<Material>()));
+        let mut mesh_obj = MeshInstance3D::new_alloc();
         mesh_obj.set_transform(Transform3D::new(Basis::IDENTITY, start.lerp(end, 0.5)));
-        mesh_obj.set_mesh(mesh.upcast());
+        mesh_obj.set_mesh(Some(&mesh.upcast::<Mesh>()));
         mesh_obj
     }
 
     pub fn text_vertical(text: &str, pos: Vector3) -> Gd<Label3D> {
-        let mut label = Label3D::new();
+        let mut label = Label3D::new_alloc();
         label.set_text(text.into());
         label.set_font_size(200);
         label.set_shaded(true);
@@ -278,26 +279,26 @@ impl MeshGenerator {
     }
 
     pub fn box_shape(color: Color, pos: Vector3) -> Gd<MeshInstance3D> {
-        let mut mat = StandardMaterial3D::new();
+        let mut mat = StandardMaterial3D::new_gd();
         mat.set_albedo_color(color);
-        let mut mesh = BoxMesh::new();
+        let mut mesh = BoxMesh::new_gd();
         mesh.set_size(Vector3::new(1.0, 1.0, 1.0));
-        mesh.set_material(mat.upcast());
-        let mut mesh_obj = MeshInstance3D::new();
+        mesh.set_material(Some(&mat.upcast::<Material>()));
+        let mut mesh_obj = MeshInstance3D::new_alloc();
         mesh_obj.set_transform(Transform3D::new(Basis::IDENTITY, pos));
-        mesh_obj.set_mesh(mesh.upcast());
+        mesh_obj.set_mesh(Some(&mesh.upcast::<Mesh>()));
         mesh_obj
     }
 
     pub fn plane(color: Color, center: Vector3, size: Vector2) -> Gd<Node3D> {
-        let mut mat = StandardMaterial3D::new();
+        let mut mat = StandardMaterial3D::new_gd();
         mat.set_albedo_color(color);
-        let mut mesh = PlaneMesh::new();
+        let mut mesh = PlaneMesh::new_gd();
         mesh.set_size(size);
-        mesh.set_material(mat.upcast());
-        let mut mesh_obj = MeshInstance3D::new();
+        mesh.set_material(Some(&mat.upcast::<Material>()));
+        let mut mesh_obj = MeshInstance3D::new_alloc();
         mesh_obj.set_transform(Transform3D::new(Basis::IDENTITY, center));
-        mesh_obj.set_mesh(mesh.upcast());
+        mesh_obj.set_mesh(Some(&mesh.upcast::<Mesh>()));
         mesh_obj.upcast()
     }
 }
