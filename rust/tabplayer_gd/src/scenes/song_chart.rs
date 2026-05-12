@@ -20,8 +20,8 @@ impl INode3D for SongChart {
     }
 
     fn ready(&mut self) {
-        if let Some(instrument) = &self.instrument {
-            let items = self.load_notes(instrument);
+        if let Some(instrument) = self.instrument.clone() {
+            let items = self.load_notes(&instrument);
             for item in items {
                 self.base_mut().add_child(Some(&item.upcast::<Node>()));
             }
@@ -31,6 +31,14 @@ impl INode3D for SongChart {
 
 #[godot_api]
 impl SongChart {
+    pub fn from_instrument(base: Base<Node3D>, instrument: Instrument) -> Self {
+        Self {
+            base,
+            instrument: Some(instrument),
+            last_chord: None,
+        }
+    }
+
     fn load_notes(&mut self, instrument: &Instrument) -> Vec<Gd<Node3D>> {
         let mut result = Vec::new();
         let mut fret_last: HashMap<i32, f32> = HashMap::new();

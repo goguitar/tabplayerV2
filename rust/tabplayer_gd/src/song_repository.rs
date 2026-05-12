@@ -1,6 +1,7 @@
 use crate::models::*;
 use crate::vgmstream::{Vgmstream, VgmstreamError};
 use godot::classes::Os;
+use godot::obj::Singleton;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -116,7 +117,7 @@ impl SongRepository {
         })
     }
 
-    pub fn reload_sources(&mut self, output: impl Fn(String)) -> Result<(), SongRepositoryError> {
+    pub fn reload_sources(&mut self, mut output: impl FnMut(String)) -> Result<(), SongRepositoryError> {
         self.sources = read_sources_file().unwrap_or_default();
         self.songs.clear();
         for path in self.sources.clone() {
@@ -389,14 +390,14 @@ fn convert_instrument(name: String, sng: &Sng, config: InstrumentConfig) -> Inst
         .filter(|n| !n.is_chord())
         .map(|n| n.time)
         .collect::<Vec<_>>();
-    for time in grouped_times.iter().unique() {
+    for time in grouped_times.iter().unique_by(|time| time.to_bits()) {
         let same_time: Vec<NoteBlock> = note_blocks
             .iter()
             .filter(|n| !n.is_chord() && (n.time - *time).abs() < f32::EPSILON)
             .cloned()
             .collect();
         if same_time.len() > 1 {
-            note_blocks.retain(|n| !(n.time - *time).abs() < f32::EPSILON || n.is_chord());
+            note_blocks.retain(|n| !((n.time - *time).abs() < f32::EPSILON) || n.is_chord());
             let notes = same_time
                 .iter()
                 .cloned()
@@ -473,7 +474,7 @@ fn convert_note_block(note: &rocksmith2014_sng::Note, sng: &Sng) -> NoteBlock {
                         )));
                     }
                     if let Some(bend_data) = chord_notes.bend_data.get(string_idx) {
-                        local_bends = convert_bends(&bend_data.bend_data, note.time, note.sustain);
+                        local_bends = convert_bends(&bend_data.bend_values, note.time, note.sustain);
                     }
                     if let Some(slide_to) = chord_notes.slide_to.get(string_idx) {
                         if *slide_to >= 0 {

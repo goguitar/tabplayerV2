@@ -53,7 +53,8 @@ impl InfoPage {
     #[allow(non_snake_case)]
     fn OpenConfigFolder_Pressed(&mut self) {
         let folder = Os::singleton().get_user_data_dir();
-        Os::singleton().shell_open(format!("file://{folder}"));
+        let uri = format!("file://{folder}");
+        Os::singleton().shell_open(&uri);
     }
 
     pub fn animate_in(&self) {

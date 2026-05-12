@@ -1,5 +1,6 @@
 use super::shared::*;
 use super::SongDisplay;
+use godot::classes::control;
 
 #[derive(GodotClass)]
 #[class(base=VBoxContainer)]
@@ -34,23 +35,25 @@ impl IVBoxContainer for SongList {
 
     fn ready(&mut self) {
         let song_list = SongRepository::global().lock().song_files();
+        let row_callable = self.base_mut().callable("on_row_input");
         self.rows = song_list
             .into_iter()
             .map(|song| Row {
                 controls: vec![
-                    create_label(&song.song_name, &song.id, self.base_mut().callable("on_row_input")),
-                    create_label(&song.artist, &song.id, self.base_mut().callable("on_row_input")),
-                    create_label(&song.album, &song.id, self.base_mut().callable("on_row_input")),
-                    create_label(&song.year.map(|y| y.to_string()).unwrap_or_default(), &song.id, self.base_mut().callable("on_row_input")),
-                    create_label(&to_min_sec(song.length as f64, false), &song.id, self.base_mut().callable("on_row_input")),
-                    create_label(&song.instrument_chars(), &song.id, self.base_mut().callable("on_row_input")),
+                    create_label(&song.song_name, &song.id, row_callable.clone()),
+                    create_label(&song.artist, &song.id, row_callable.clone()),
+                    create_label(&song.album, &song.id, row_callable.clone()),
+                    create_label(&song.year.map(|y| y.to_string()).unwrap_or_default(), &song.id, row_callable.clone()),
+                    create_label(&to_min_sec(song.length as f64, false), &song.id, row_callable.clone()),
+                    create_label(&song.instrument_chars(), &song.id, row_callable.clone()),
                 ],
                 song,
                 selected: false,
             })
             .collect();
 
-        if let Some(display) = &self.song_display {
+        let display = self.song_display.clone();
+        if let Some(display) = display {
             if let Some(mut split) = self
                 .base_mut()
                 .try_get_node_as::<VBoxContainer>("HSplitContainer/VBoxContainerDetails")
@@ -66,21 +69,22 @@ impl IVBoxContainer for SongList {
             grid.set_columns(headings.len() as i32);
             for heading in headings.iter() {
                 let mut button = Button::new_alloc();
-                button.set_text(heading);
+                button.set_text(*heading);
                 button.set_button_group(Some(&group));
                 button.set_toggle_mode(true);
                 grid.add_child(Some(&button.upcast::<Node>()));
             }
         }
 
+        let tunings = self
+            .rows
+            .iter()
+            .filter_map(|row| row.song.main_instrument())
+            .map(|inst| Instrument::calc_tuning_name(inst.tuning, inst.capo_fret))
+            .unique()
+            .collect::<Vec<_>>();
         if let Some(mut tuning_select) = self.base_mut().try_get_node_as::<OptionButton>("HBoxContainer/TuningOptionButton") {
             tuning_select.add_item("");
-            let tunings = self
-                .rows
-                .iter()
-                .filter_map(|row| row.song.main_instrument())
-                .map(|inst| Instrument::calc_tuning_name(inst.tuning, inst.capo_fret))
-                .unique();
             for tuning in tunings {
                 tuning_select.add_item(tuning.as_str());
             }
@@ -107,7 +111,7 @@ impl SongList {
 
     #[func]
     fn on_row_input(&mut self, event: Gd<InputEvent>, folder: GString) {
-        if let Some(event) = event.try_cast::<InputEventMouseButton>() {
+        if let Ok(event) = event.try_cast::<InputEventMouseButton>() {
             if event.is_pressed() && event.get_button_index() == MouseButton::LEFT {
                 self.base_mut().emit_signal("song_selected", &[folder.to_variant()]);
             }
@@ -115,14 +119,17 @@ impl SongList {
     }
 
     fn load_table_rows(&mut self) {
+        let controls = self
+            .rows
+            .iter()
+            .flat_map(|row| row.controls.iter().cloned())
+            .collect::<Vec<_>>();
         if let Some(mut grid) = self.base_mut().try_get_node_as::<GridContainer>("%GridContainer") {
-            for row in &self.rows {
-                for control in &row.controls {
-                    if control.get_parent().is_some() {
-                        grid.remove_child(Some(&control.clone().upcast::<Node>()));
-                    }
-                    grid.add_child(Some(&control.clone().upcast::<Node>()));
+            for control in controls {
+                if control.get_parent().is_some() {
+                    grid.remove_child(Some(&control.clone().upcast::<Node>()));
                 }
+                grid.add_child(Some(&control.clone().upcast::<Node>()));
             }
         }
     }
@@ -145,7 +152,7 @@ impl SongList {
                     || row.song.song_name.to_lowercase().contains(&filter.to_lowercase())
                     || row.song.album.to_lowercase().contains(&filter.to_lowercase())
             }).unwrap_or(true);
-            for control in &row.controls {
+            for control in row.controls.iter_mut() {
                 control.set_visible(enabled && tuning_enabled);
             }
             if enabled && tuning_enabled {
@@ -160,8 +167,11 @@ impl SongList {
     #[func]
     #[allow(non_snake_case)]
     fn TuningSelected(&mut self, index: i64) {
-        if let Some(tuning_select) = self.base_mut().try_get_node_as::<OptionButton>("HBoxContainer/TuningOptionButton") {
-            let record = tuning_select.get_item_text(index as i32);
+        let record = self
+            .base_mut()
+            .try_get_node_as::<OptionButton>("HBoxContainer/TuningOptionButton")
+            .map(|tuning_select| tuning_select.get_item_text(index as i32));
+        if let Some(record) = record {
             self.tuning_filter = record.to_string();
             self.load_table_filter();
         }
@@ -205,8 +215,8 @@ impl SongList {
             return;
         }
         let index = (rand::random::<f32>() * valid_songs.len() as f32) as usize;
-        let song = &valid_songs[index];
-        self.base_mut().emit_signal("song_selected", &[song.song.id.to_variant()]);
+        let song_id = valid_songs[index].song.id.clone();
+        self.base_mut().emit_signal("song_selected", &[song_id.to_variant()]);
     }
 
     #[func]
@@ -221,7 +231,7 @@ impl SongList {
 fn create_label(text: &str, folder: &str, callable: Callable) -> Gd<Control> {
     let mut label = Label::new_alloc();
     label.set_text(&fixed_width_string(text, 30));
-    label.set_mouse_filter(Control::MouseFilter::Stop);
+    label.set_mouse_filter(control::MouseFilter::STOP);
     let args = [folder.to_variant()];
     label.connect("gui_input", &callable.bind(&args));
     label.upcast()

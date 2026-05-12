@@ -33,21 +33,27 @@ impl INode for SongScene {
     }
 
     fn ready(&mut self) {
-        if let Some(state) = &self.state {
-            self.set_ui_labels(state);
-            if let Some(mut player) = self.base_mut().try_get_node_as::<AudioStreamPlayer>("AudioStreamPlayer") {
-                if let Some(stream) = &self.audio_stream {
-                    player.set_stream(Some(&stream.clone().upcast::<AudioStream>()));
-                }
-                player.play();
+        if let Some(state) = self.state.clone() {
+            self.set_ui_labels(&state);
+            let stream = self.audio_stream.clone();
+            let player = self
+                .base_mut()
+                .try_get_node_as::<AudioStreamPlayer>("AudioStreamPlayer")
+                .map(|mut player| {
+                    if let Some(stream) = stream {
+                        player.set_stream(Some(&stream.clone().upcast::<AudioStream>()));
+                    }
+                    player.play();
+                    player
+                });
+            if let Some(player) = player {
                 self.player = Some(player.clone());
             }
 
             let player = self.player.clone();
-            let mut guitar_chart = Gd::<GuitarChart>::from_init_fn(|mut chart| {
-                chart.state = Some(state.clone());
-                chart.audio_player = player.clone();
-            });
+            let state = state.clone();
+            let guitar_chart =
+                Gd::<GuitarChart>::from_init_fn(move |base| GuitarChart::from_state(base, state, player));
             self.base_mut().add_child(Some(&guitar_chart.clone().upcast::<Node>()));
 
             self.load_instrument_from_state();
@@ -57,19 +63,21 @@ impl INode for SongScene {
     fn process(&mut self, delta: f64) {
         self.cached_song_position.set(None);
         let song_position = self.get_song_position();
+        let a_position = self.a_position;
         if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("GridContainer/ABLabelStart") {
-            let text = if self.a_position == 0.0 {
+            let text = if a_position == 0.0 {
                 String::new()
             } else {
-                to_min_sec(self.a_position, true)
+                to_min_sec(a_position, true)
             };
             label.set_text(text.as_str());
         }
+        let b_position = self.b_position;
         if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("GridContainer/ABLabelEnd") {
-            let text = if self.b_position == 0.0 {
+            let text = if b_position == 0.0 {
                 String::new()
             } else {
-                to_min_sec(self.b_position, true)
+                to_min_sec(b_position, true)
             };
             label.set_text(text.as_str());
         }
@@ -86,15 +94,16 @@ impl INode for SongScene {
                 return;
             }
         }
-        if let Some(state) = &self.state {
-            if let Some(next_note) = self.next_note_block(state, song_position) {
+        let state = self.state.clone();
+        if let Some(state) = state {
+            if let Some(next_note) = Self::next_note_block(&state, song_position) {
                 if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("GridContainer/SkipToNextLabel2") {
                     label.set_text(&format!("at {}", to_min_sec(next_note.time as f64, false)));
                 }
             }
             if let Some(mut details) = self.base_mut().try_get_node_as::<Label>("DetailsVBoxContainer/SongDetailsLabel") {
                 let instrument = state.instrument();
-                let note_text = if let Some(next_note) = self.next_note_block(state, song_position) {
+                let note_text = if let Some(next_note) = Self::next_note_block(&state, song_position) {
                     format!(
                         "Next Note: {} in {:.1}",
                         to_min_sec(next_note.time as f64, false),
@@ -115,19 +124,20 @@ impl INode for SongScene {
             if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("RunningDetailsLabel") {
                 label.set_text(&format!(
                     "{}fps | {:03.1}ms\n{}",
-                    Engine::get_frames_per_second(),
+                    Engine::singleton().get_frames_per_second(),
                     delta * 1000.0,
                     to_min_sec(song_position, true)
                 ));
             }
             if let Some(mut lyrics_label) = self.base_mut().try_get_node_as::<RichTextLabel>("HBoxContainer/LyricsLabel") {
-                self.update_lyrics(state, song_position, &mut lyrics_label);
+                Self::update_lyrics(&state, song_position, &mut lyrics_label);
             }
             if let Some(mut pos_line) = self.base_mut().try_get_node_as::<LineEdit>("GridContainer/PositionSetLineEdit") {
                 pos_line.set_text(&to_min_sec(song_position, true));
             }
+            let player = self.player.clone();
             if let Some(mut speed_label) = self.base_mut().try_get_node_as::<Label>("GridContainer/SongSpeedLabel") {
-                if let Some(player) = &self.player {
+                if let Some(player) = player {
                     speed_label.set_text(&format!("{:.1}%", player.get_pitch_scale() * 100.0));
                 }
             }
@@ -145,7 +155,7 @@ impl SongScene {
         stream.set_format(audio_stream_wav::Format::FORMAT_16_BITS);
         stream.set_mix_rate(state.audio_sample_rate);
         stream.set_stereo(state.audio_channels >= 2);
-        stream.set_data(PackedByteArray::from(state.audio.clone()));
+        stream.set_data(&PackedByteArray::from(state.audio.clone()));
         self.audio_stream = Some(stream);
         self.state = Some(state);
     }
@@ -173,11 +183,11 @@ impl SongScene {
         if let Some(mut note_graph) = self.note_graph_scene.take() {
             self.base_mut().remove_child(Some(&note_graph.clone().upcast::<Node>()));
         }
-        if let Some(state) = &self.state {
-            let player = self.player.clone();
-            let mut note_graph = Gd::<NoteMiniGraph>::from_init_fn(|mut graph| {
-                graph.song_state = Some(state.clone());
-                graph.audio_player = player.clone();
+        if let Some(state) = self.state.clone() {
+            let note_state = state.clone();
+            let note_player = self.player.clone();
+            let note_graph = Gd::<NoteMiniGraph>::from_init_fn(move |base| {
+                NoteMiniGraph::from_state(base, note_state, note_player)
             });
             self.base_mut().add_child(Some(&note_graph.clone().upcast::<Node>()));
             self.note_graph_scene = Some(note_graph);
@@ -185,9 +195,9 @@ impl SongScene {
             if let Some(mut song_chart) = self.song_chart_scene.take() {
                 self.base_mut().remove_child(Some(&song_chart.clone().upcast::<Node>()));
             }
-            let mut song_chart = Gd::<SongChart>::from_init_fn(|mut chart| {
-                chart.instrument = Some(state.instrument().clone());
-            });
+            let instrument = state.instrument().clone();
+            let song_chart =
+                Gd::<SongChart>::from_init_fn(move |base| SongChart::from_instrument(base, instrument));
             self.base_mut().add_child(Some(&song_chart.clone().upcast::<Node>()));
             self.song_chart_scene = Some(song_chart);
         }
@@ -203,15 +213,19 @@ impl SongScene {
                 state.song_info.metadata.album
             ));
         }
-        if let Some(mut instrument_list) = self.base_mut().try_get_node_as::<MenuButton>("DetailsVBoxContainer/VBoxContainer/InstrumentMenuButton") {
+        let callable = self.base_mut().callable("InstrumentChanged");
+        if let Some(mut instrument_list) = self
+            .base_mut()
+            .try_get_node_as::<MenuButton>("DetailsVBoxContainer/VBoxContainer/InstrumentMenuButton")
+        {
             instrument_list.set_text(state.instrument().name.as_str());
             if let Some(mut popup) = instrument_list.get_popup() {
                 popup.clear();
                 for instrument in &state.song_info.instruments {
-                    popup.add_item(instrument.name.clone());
+                    popup.add_item(instrument.name.as_str());
                 }
                 popup.set_item_checked(state.song_info.main_instrument_index as i32, true);
-                popup.connect("id_pressed", &self.base_mut().callable("InstrumentChanged"));
+                popup.connect("id_pressed", &callable);
             }
         }
     }
@@ -220,7 +234,7 @@ impl SongScene {
     #[allow(non_snake_case)]
     fn PauseButton_Pressed(&mut self) {
         if let Some(player) = self.player.as_ref() {
-            if player.is_stream_paused() {
+            if player.get_stream_paused() {
                 self.resume();
             } else {
                 self.pause();
@@ -366,7 +380,7 @@ impl SongScene {
 
     fn skip_to_next(&mut self) {
         if let Some(state) = &self.state {
-            if let Some(next_note) = self.next_note_block(state, self.get_song_position()) {
+            if let Some(next_note) = Self::next_note_block(state, self.get_song_position()) {
                 if let Some(player) = self.player.as_mut() {
                     player.seek(next_note.time - 1.5);
                 }
@@ -415,7 +429,7 @@ impl SongScene {
             let bus_id = AudioServer::singleton().get_bus_index("SongPlayback");
             if let Some(mut effect) = AudioServer::singleton()
                 .get_bus_effect(bus_id, 0)
-                .and_then(|e| e.try_cast::<AudioEffectPitchShift>())
+                .and_then(|e| e.try_cast::<AudioEffectPitchShift>().ok())
             {
                 effect.set_pitch_scale(1.0 / player.get_pitch_scale());
             }
@@ -438,25 +452,30 @@ impl SongScene {
     #[func]
     #[allow(non_snake_case)]
     fn MoveSongPosition(&mut self) {
-        if let Some(mut line_edit) = self.base_mut().try_get_node_as::<LineEdit>("GridContainer/PositionSetLineEdit") {
-            let text = line_edit.get_text().to_string();
-            let mut pos = text.parse::<f32>().unwrap_or(0.0);
-            if pos == 0.0 {
-                if let Some(parts) = parse_min_sec(&text) {
-                    pos = parts;
-                }
+        let text = match self
+            .base_mut()
+            .try_get_node_as::<LineEdit>("GridContainer/PositionSetLineEdit")
+        {
+            Some(line_edit) => line_edit.get_text().to_string(),
+            None => return,
+        };
+        let mut pos = text.parse::<f32>().unwrap_or(0.0);
+        if pos == 0.0 {
+            if let Some(parts) = parse_min_sec(&text) {
+                pos = parts;
             }
-            if pos <= 0.0 {
+        }
+        if pos <= 0.0 {
+            return;
+        }
+        if let Some(player) = self.player.as_mut() {
+            let stream_length = player.get_stream().map(|s| s.get_length() as f32).unwrap_or(0.0);
+            if pos > stream_length {
                 return;
             }
-            if let Some(player) = self.player.as_mut() {
-                if pos > player.get_stream().map(|s| s.get_length()).unwrap_or(0.0) {
-                    return;
-                }
-                player.set_stream_paused(false);
-                player.seek(pos);
-                self.pause();
-            }
+            player.set_stream_paused(false);
+            player.seek(pos);
+            self.pause();
         }
     }
 
@@ -473,7 +492,7 @@ impl SongScene {
         0.0
     }
 
-    fn next_note_block<'a>(&self, state: &'a SongState, song_pos: f64) -> Option<&'a NoteBlock> {
+    fn next_note_block<'a>(state: &'a SongState, song_pos: f64) -> Option<&'a NoteBlock> {
         state
             .instrument()
             .notes
@@ -481,7 +500,7 @@ impl SongScene {
             .find(|n| n.time as f64 > song_pos)
     }
 
-    fn update_lyrics(&self, state: &SongState, song_pos: f64, label: &mut Gd<RichTextLabel>) {
+    fn update_lyrics(state: &SongState, song_pos: f64, label: &mut Gd<RichTextLabel>) {
         label.clear();
         label.push_font_size(40);
         let lines = current_lines(state, song_pos);
@@ -492,12 +511,13 @@ impl SongScene {
         if let Some(line) = lines.get(0) {
             let (part_a, part_b) = line.get_parts(song_pos);
             label.push_color(Color::from_rgb(1.0, 0.0, 0.0));
-            label.add_text(part_a.into());
+            label.add_text(part_a.as_str());
             label.push_color(Color::from_rgb(1.0, 1.0, 0.0));
-            label.add_text(part_b.into());
+            label.add_text(part_b.as_str());
         }
         if let Some(line) = lines.get(1) {
-            label.add_text(format!("\n{}", line.text()));
+            let line_text = format!("\n{}", line.text());
+            label.add_text(&line_text);
         }
     }
 }

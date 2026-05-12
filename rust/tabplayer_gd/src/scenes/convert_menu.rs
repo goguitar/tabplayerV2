@@ -43,8 +43,12 @@ impl ConvertMenu {
         if let Some(mut info_label) = self.base_mut().try_get_node_as::<Label>("InfoLabel") {
             info_label.set_text("");
         }
+        let window_size = self
+            .base_mut()
+            .get_window()
+            .map(|w| w.get_size())
+            .unwrap_or(Vector2i::new(1280, 720));
         if let Some(mut dialog) = self.base_mut().try_get_node_as::<FileDialog>("FileDialog") {
-            let window_size = self.base_mut().get_window().map(|w| w.get_size()).unwrap_or(Vector2i::new(1280, 720));
             dialog.set_size(Vector2i::new((window_size.x as f64 * 0.8) as i32, (window_size.y as f64 * 0.8) as i32));
             dialog.popup_centered();
         }

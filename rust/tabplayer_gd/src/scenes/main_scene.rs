@@ -94,20 +94,26 @@ impl MainScene {
 
     #[func]
     fn on_song_pick_opened(&mut self) {
-        if let Some(mut start_menu) = self.start_menu.take() {
-            self.base_mut().remove_child(Some(&start_menu.clone().upcast::<Node>()));
+        let start_menu = self.start_menu.take();
+        let convert_menu = self.convert_menu.clone();
+        let settings_page = self.settings_page.clone();
+        let info_page = self.info_page.clone();
+        let song_pick = self.song_pick.clone();
+        let mut base = self.base_mut();
+        if let Some(start_menu) = start_menu {
+            base.remove_child(Some(&start_menu.clone().upcast::<Node>()));
         }
-        if let Some(mut convert_menu) = self.convert_menu.as_mut() {
-            self.base_mut().remove_child(Some(&convert_menu.clone().upcast::<Node>()));
+        if let Some(convert_menu) = convert_menu {
+            base.remove_child(Some(&convert_menu.clone().upcast::<Node>()));
         }
-        if let Some(mut settings_page) = self.settings_page.as_mut() {
-            self.base_mut().remove_child(Some(&settings_page.clone().upcast::<Node>()));
+        if let Some(settings_page) = settings_page {
+            base.remove_child(Some(&settings_page.clone().upcast::<Node>()));
         }
-        if let Some(mut info_page) = self.info_page.as_mut() {
-            self.base_mut().remove_child(Some(&info_page.clone().upcast::<Node>()));
+        if let Some(info_page) = info_page {
+            base.remove_child(Some(&info_page.clone().upcast::<Node>()));
         }
-        if let Some(song_pick) = &self.song_pick {
-            self.base_mut().add_child(Some(&song_pick.clone().upcast::<Node>()));
+        if let Some(song_pick) = song_pick {
+            base.add_child(Some(&song_pick.clone().upcast::<Node>()));
         }
     }
 
@@ -176,13 +182,13 @@ impl MainScene {
     fn reload_song_list(&mut self) {
         let loaded = self.song_pick.as_ref().map(|s| s.is_visible_in_tree()).unwrap_or(false);
         if loaded {
-            if let Some(song_pick) = &self.song_pick {
+            if let Some(mut song_pick) = self.song_pick.clone() {
                 song_pick.queue_free();
-            }
+            };
         }
         self.load_song_pick();
         if loaded {
-            if let Some(song_pick) = &self.song_pick {
+            if let Some(song_pick) = self.song_pick.clone() {
                 self.base_mut().add_child(Some(&song_pick.clone().upcast::<Node>()));
             }
         }
@@ -197,27 +203,34 @@ impl MainScene {
 
     #[func]
     fn on_song_pick_closed(&mut self) {
-        if let Some(song_pick) = &self.song_pick {
-            self.base_mut().remove_child(Some(&song_pick.clone().upcast::<Node>()));
+        let song_pick = self.song_pick.clone();
+        let start_menu = self.start_menu.clone();
+        let convert_menu = self.convert_menu.clone();
+        let settings_page = self.settings_page.clone();
+        let info_page = self.info_page.clone();
+        let mut base = self.base_mut();
+        if let Some(song_pick) = song_pick {
+            base.remove_child(Some(&song_pick.clone().upcast::<Node>()));
         }
-        if let Some(start_menu) = &self.start_menu {
-            self.base_mut().add_child(Some(&start_menu.clone().upcast::<Node>()));
+        if let Some(start_menu) = start_menu {
+            base.add_child(Some(&start_menu.clone().upcast::<Node>()));
             start_menu.bind().animate_in();
         }
-        if let Some(convert_menu) = &self.convert_menu {
-            self.base_mut().add_child(Some(&convert_menu.clone().upcast::<Node>()));
+        if let Some(convert_menu) = convert_menu {
+            base.add_child(Some(&convert_menu.clone().upcast::<Node>()));
         }
-        if let Some(settings_page) = &self.settings_page {
-            self.base_mut().add_child(Some(&settings_page.clone().upcast::<Node>()));
+        if let Some(settings_page) = settings_page {
+            base.add_child(Some(&settings_page.clone().upcast::<Node>()));
         }
-        if let Some(info_page) = &self.info_page {
-            self.base_mut().add_child(Some(&info_page.clone().upcast::<Node>()));
+        if let Some(info_page) = info_page {
+            base.add_child(Some(&info_page.clone().upcast::<Node>()));
         }
     }
 
     #[func]
     fn on_song_opened(&mut self, folder: GString, instrument: GString) {
-        if let Some(song_pick) = &self.song_pick {
+        let song_pick = self.song_pick.clone();
+        if let Some(song_pick) = song_pick {
             self.base_mut().remove_child(Some(&song_pick.clone().upcast::<Node>()));
         }
         let mut scene = load_scene::<SongScene>("res://scenes/SongScene.tscn");
@@ -233,7 +246,7 @@ impl MainScene {
 
     #[func]
     fn on_song_scene_closed(&mut self) {
-        if let Some(song_pick) = &self.song_pick {
+        if let Some(song_pick) = self.song_pick.clone() {
             self.base_mut().add_child(Some(&song_pick.clone().upcast::<Node>()));
         }
     }

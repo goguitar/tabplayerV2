@@ -76,7 +76,7 @@ impl SongPick {
                     if let Some(mut dialog) =
                         self.base_mut().try_get_node_as::<ConfirmationDialog>("TuningConfirmationDialog")
                     {
-                        dialog.set_dialog_text(&format!(
+                        dialog.set_text(&format!(
                             "Instrument tuning ({tuning_name}) is different to song filter ({tuning_filter})\nAre you sure?"
                         ));
                         dialog.popup_centered();
@@ -113,4 +113,3 @@ impl SongPick {
         self.base_mut().emit_signal("closed", &[]);
     }
 }
-

@@ -25,10 +25,11 @@ impl IControl for StartMenu {
             song_count_label.set_text(&format!("{song_count} songs"));
         }
 
-        if let Some(obj) = self.base_mut().try_get_node_as::<VBoxContainer>("VBoxContainer") {
+        let tree = self.base_mut().get_tree();
+        let tween = if let Some(mut obj) = self.base_mut().try_get_node_as::<VBoxContainer>("VBoxContainer") {
             let initial_pos = Vector2::new(-obj.get_size().x, obj.get_position().y);
             let tween = TweenHelper::new(
-                self.base_mut().get_tree(),
+                tree,
                 obj.clone().upcast(),
                 "position",
                 initial_pos.to_variant(),
@@ -36,13 +37,17 @@ impl IControl for StartMenu {
             );
             obj.set_position(initial_pos);
             tween.to_final();
-            self.tween = Some(tween);
-        }
+            Some(tween)
+        } else {
+            None
+        };
+        self.tween = tween;
     }
 
     fn process(&mut self, _delta: f64) {
+        let progress_text = self.progress_text.clone();
         if let Some(mut label) = self.base_mut().try_get_node_as::<Label>("ReloadProgressLabel") {
-            label.set_text(self.progress_text.as_str());
+            label.set_text(progress_text.as_str());
         }
     }
 }
@@ -138,4 +143,3 @@ impl StartMenu {
         }
     }
 }
-

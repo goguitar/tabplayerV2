@@ -71,7 +71,7 @@ impl SettingsPage {
             let mut picker = ColorPickerButton::new_alloc();
             picker.set_pick_color(self.settings.string_colours[i]);
             picker.set_edit_alpha(false);
-            let args = [i.to_variant()];
+            let args = [(i as i64).to_variant()];
             let callable = self.base_mut().callable("on_color_changed").bind(&args);
             picker.connect("popup_closed", &callable);
             self.color_pickers.push(picker.clone());

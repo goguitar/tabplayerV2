@@ -60,6 +60,8 @@ impl SongDisplay {
             label.set_text(&format!("Length: {}", to_min_sec(song_info.length as f64, false)));
         }
 
+        let folder_name = self.folder_name.clone().unwrap_or_default();
+        let callable = self.base_mut().callable("emit_song_selected");
         if let Some(mut grid) = self.base_mut().try_get_node_as::<GridContainer>("InstrumentGridContainer") {
             for child in grid.get_children().iter_shared() {
                 grid.remove_child(Some(&child));
@@ -74,7 +76,8 @@ impl SongDisplay {
             let mut density_label = Label::new_alloc();
             density_label.set_text("Note Density");
             grid.add_child(Some(&density_label.upcast::<Node>()));
-            grid.set_columns(grid.get_child_count() as i32);
+            let child_count = grid.get_child_count();
+            grid.set_columns(child_count as i32);
 
             let mut instruments = song_info.instruments.clone();
             instruments.sort_by(|a, b| {
@@ -91,12 +94,9 @@ impl SongDisplay {
             for instrument in instruments {
                 let mut button = Button::new_alloc();
                 button.set_text(&format!("Play {}", instrument.name));
-                let folder_name = self.folder_name.clone().unwrap_or_default();
                 let instrument_name = instrument.name.clone();
-                let callable = self.base_mut().callable("emit_song_selected").bind(
-                    folder_name.to_variant(),
-                    instrument_name.to_variant(),
-                );
+                let args = [folder_name.to_variant(), instrument_name.to_variant()];
+                let callable = callable.bind(&args);
                 button.connect("pressed", &callable);
                 grid.add_child(Some(&button.upcast::<Node>()));
                 let mut label = Label::new_alloc();

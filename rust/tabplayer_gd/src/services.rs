@@ -3,6 +3,7 @@ use godot::classes::{
     AudioServer, BoxMesh, Control, Label3D, Material, Mesh, MeshInstance3D, Os, PlaneMesh,
     SceneTree, StandardMaterial3D,
 };
+use godot::classes::label_3d;
 use godot::classes::tween;
 use godot::builtin::Color;
 use godot::prelude::*;
@@ -42,27 +43,31 @@ impl TweenHelper {
     }
 
     pub fn to_final(&self) {
-        let mut tween = self.scene_tree.create_tween();
-        tween
-            .tween_property(
-                self.control.clone().upcast(),
-                self.prop_name.clone().into(),
-                self.final_prop.clone(),
+        let mut scene_tree = self.scene_tree.clone();
+        if let Some(mut tween) = scene_tree.create_tween() {
+            if let Some(mut tweener) = tween.tween_property(
+                &self.control,
+                self.prop_name.as_str(),
+                &self.final_prop,
                 self.speed,
-            )
-            .set_trans(self.transition);
+            ) {
+                tweener.set_trans(self.transition);
+            }
+        }
     }
 
     pub fn to_initial(&self) {
-        let mut tween = self.scene_tree.create_tween();
-        tween
-            .tween_property(
-                self.control.clone().upcast(),
-                self.prop_name.clone().into(),
-                self.initial_prop.clone(),
+        let mut scene_tree = self.scene_tree.clone();
+        if let Some(mut tween) = scene_tree.create_tween() {
+            if let Some(mut tweener) = tween.tween_property(
+                &self.control,
+                self.prop_name.as_str(),
+                &self.initial_prop,
                 self.speed,
-            )
-            .set_trans(self.transition);
+            ) {
+                tweener.set_trans(self.transition);
+            }
+        }
     }
 }
 
@@ -251,7 +256,7 @@ pub struct MeshGenerator;
 impl MeshGenerator {
     pub fn box_line(color: Color, start: Vector3, end: Vector3) -> Gd<MeshInstance3D> {
         let mut mat = StandardMaterial3D::new_gd();
-        mat.set_albedo_color(color);
+        mat.set_albedo(color);
         let length = (end - start).length();
         let mut mesh = BoxMesh::new_gd();
         mesh.set_size(Vector3::new(length, 0.1, 0.1));
@@ -264,9 +269,9 @@ impl MeshGenerator {
 
     pub fn text_vertical(text: &str, pos: Vector3) -> Gd<Label3D> {
         let mut label = Label3D::new_alloc();
-        label.set_text(text.into());
+        label.set_text(text);
         label.set_font_size(200);
-        label.set_shaded(true);
+        label.set_draw_flag(label_3d::DrawFlags::SHADED, true);
         label.set_transform(Transform3D::new(
             Basis::from_rows(
                 Vector3::new(0.0, 0.0, -1.0),
@@ -280,7 +285,7 @@ impl MeshGenerator {
 
     pub fn box_shape(color: Color, pos: Vector3) -> Gd<MeshInstance3D> {
         let mut mat = StandardMaterial3D::new_gd();
-        mat.set_albedo_color(color);
+        mat.set_albedo(color);
         let mut mesh = BoxMesh::new_gd();
         mesh.set_size(Vector3::new(1.0, 1.0, 1.0));
         mesh.set_material(Some(&mat.upcast::<Material>()));
@@ -292,7 +297,7 @@ impl MeshGenerator {
 
     pub fn plane(color: Color, center: Vector3, size: Vector2) -> Gd<Node3D> {
         let mut mat = StandardMaterial3D::new_gd();
-        mat.set_albedo_color(color);
+        mat.set_albedo(color);
         let mut mesh = PlaneMesh::new_gd();
         mesh.set_size(size);
         mesh.set_material(Some(&mat.upcast::<Material>()));
@@ -457,8 +462,8 @@ impl NoteGenerator {
                 cur_x += 1.5;
                 let cur_pos = Vector3::new(
                     cur_x,
-                    note_pos.y + (wibble as f32 * f64::consts::FRAC_PI_2).sin() as f32 * 0.4,
-                    note_pos.z + (wibble as f32 * f64::consts::FRAC_PI_2).cos() as f32 * 0.2,
+                    note_pos.y + (wibble as f32 * std::f32::consts::FRAC_PI_2).sin() * 0.4,
+                    note_pos.z + (wibble as f32 * std::f32::consts::FRAC_PI_2).cos() * 0.2,
                 );
                 output.push(MeshGenerator::box_line(note_colour, last_pos, cur_pos).upcast());
                 wibble += 1;
@@ -470,7 +475,8 @@ impl NoteGenerator {
             let mut cur_pos = note_pos;
             while cur_pos.x < final_line_pos.x {
                 let mut box_note = MeshGenerator::box_shape(note_colour, cur_pos);
-                box_note.set_scale(box_note.get_scale() * 0.45);
+                let new_scale = box_note.get_scale() * 0.45;
+                box_note.set_scale(new_scale);
                 output.push(box_note.upcast());
                 let direction = (final_line_pos - note_pos).normalized();
                 cur_pos += direction * 1.25;
@@ -482,5 +488,5 @@ impl NoteGenerator {
 }
 
 pub fn audio_bus_index() -> i32 {
-    AudioServer::singleton().get_bus_index("SongPlayback".into())
+    AudioServer::singleton().get_bus_index("SongPlayback")
 }
