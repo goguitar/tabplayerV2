@@ -1,17 +1,11 @@
 use std::ffi::CString;
-use std::fs;
-use std::io::Write;
-use std::num::{NonZeroU32, NonZeroU8};
 use std::path::Path;
-use std::sync::OnceLock;
 
 use anyhow::{anyhow, Context, Result};
-use libloading::Library;
-use vorbis_rs::VorbisEncoderBuilder;
 
 use crate::vgm_stream_bindings::{
-    LibStreamFile, LibVgmstream, LibstreamfileClose, LibstreamfileOpenFromStdio, LibvgmstreamCreate,
-    LibvgmstreamFill, LibvgmstreamFree,
+    libstreamfile_close, libstreamfile_open_from_stdio, libvgmstream_create, libvgmstream_fill,
+    libvgmstream_free, LibStreamFile, LibVgmstream,
 };
 
 const LIBVGMSTREAM_SFMT_PCM16: i32 = 1;
@@ -23,99 +17,25 @@ pub struct DecodedAudio {
     pub interleaved_i16: Vec<i16>,
 }
 
-struct VgmstreamApi {
-    _library: Library,
-    open_stdio: LibstreamfileOpenFromStdio,
-    close_sf: LibstreamfileClose,
-    create: LibvgmstreamCreate,
-    free: LibvgmstreamFree,
-    fill: LibvgmstreamFill,
-}
-
-static API: OnceLock<Result<VgmstreamApi, String>> = OnceLock::new();
-
-fn candidate_library_names() -> Vec<String> {
-    let mut out = Vec::new();
-    if let Ok(path) = std::env::var("VGMSTREAM_LIB_PATH") {
-        if !path.trim().is_empty() {
-            out.push(path);
-        }
-    }
-
-    out.push("libvgmstream.so".to_string());
-    out.push("vgmstream.dll".to_string());
-    out.push("libvgmstream.dll".to_string());
-    out.push("libvgmstream.dylib".to_string());
-    out
-}
-
-fn api() -> Result<&'static VgmstreamApi> {
-    let result = API.get_or_init(|| {
-        for candidate in candidate_library_names() {
-            let lib = unsafe { Library::new(&candidate) };
-            let Ok(lib) = lib else {
-                continue;
-            };
-
-            let open_stdio = unsafe { lib.get::<LibstreamfileOpenFromStdio>(b"libstreamfile_open_from_stdio\0") };
-            let close_sf = unsafe { lib.get::<LibstreamfileClose>(b"libstreamfile_close\0") };
-            let create = unsafe { lib.get::<LibvgmstreamCreate>(b"libvgmstream_create\0") };
-            let free = unsafe { lib.get::<LibvgmstreamFree>(b"libvgmstream_free\0") };
-            let fill = unsafe { lib.get::<LibvgmstreamFill>(b"libvgmstream_fill\0") };
-
-            if let (Ok(open_stdio), Ok(close_sf), Ok(create), Ok(free), Ok(fill)) =
-                (open_stdio, close_sf, create, free, fill)
-            {
-                let api = VgmstreamApi {
-                    open_stdio: *open_stdio,
-                    close_sf: *close_sf,
-                    create: *create,
-                    free: *free,
-                    fill: *fill,
-                    _library: lib,
-                };
-                return Ok(api);
-            }
-        }
-
-        Err(
-            "unable to load libvgmstream shared library (set VGMSTREAM_LIB_PATH or install libvgmstream.so/.dll/.dylib)"
-                .to_string(),
-        )
-    });
-
-    match result {
-        Ok(api) => Ok(api),
-        Err(err) => Err(anyhow!(err.clone())),
-    }
-}
-
 pub fn decode_wem_to_pcm(path: &Path) -> Result<DecodedAudio> {
-    let api = api()?;
     let c_path = CString::new(path.to_string_lossy().as_bytes())
         .with_context(|| format!("invalid wem path '{}'", path.display()))?;
 
-    let sf = unsafe { (api.open_stdio)(c_path.as_ptr()) };
+    let sf = unsafe { libstreamfile_open_from_stdio(c_path.as_ptr()) };
     if sf.is_null() {
         return Err(anyhow!("libvgmstream could not open streamfile '{}'", path.display()));
     }
 
-    let mut sf_guard = StreamFileGuard {
-        api,
-        sf: Some(sf),
-    };
+    let mut sf_guard = StreamFileGuard { sf: Some(sf) };
 
-    let lib = unsafe { (api.create)(sf, 0, std::ptr::null_mut()) };
+    let lib = unsafe { libvgmstream_create(sf, 0, std::ptr::null_mut()) };
     if lib.is_null() {
         return Err(anyhow!("libvgmstream could not decode '{}'", path.display()));
     }
 
     sf_guard.close_now();
 
-    let mut lib_guard = VgmstreamGuard {
-        api,
-        lib: Some(lib),
-    };
+    let mut lib_guard = VgmstreamGuard { lib: Some(lib) };
 
     let format = unsafe { (*lib).format };
     if format.is_null() {
@@ -151,7 +71,7 @@ pub fn decode_wem_to_pcm(path: &Path) -> Result<DecodedAudio> {
             temp_f32.as_mut_ptr().cast()
         };
 
-        let status = unsafe { (api.fill)(lib, buf_ptr, 4096) };
+        let status = unsafe { libvgmstream_fill(lib, buf_ptr, 4096) };
         if status < 0 {
             return Err(anyhow!("libvgmstream decode error for '{}'", path.display()));
         }
@@ -192,118 +112,85 @@ pub fn decode_wem_to_pcm(path: &Path) -> Result<DecodedAudio> {
     })
 }
 
-pub fn encode_ogg_48k(audio: &DecodedAudio, out_path: &Path) -> Result<()> {
-    let target_rate = 48_000_u32;
-    let resampled = if audio.sample_rate == target_rate {
-        audio.interleaved_i16.clone()
-    } else {
-        linear_resample_interleaved_i16(&audio.interleaved_i16, audio.channels, audio.sample_rate, target_rate)
-    };
-
-    let channels = NonZeroU8::new(audio.channels.max(1) as u8)
-        .ok_or_else(|| anyhow!("invalid channel count"))?;
-    let mut encoder = VorbisEncoderBuilder::new(
-        NonZeroU32::new(target_rate).unwrap(),
-        channels,
-        Vec::<u8>::new(),
-    )?
-    .build()?;
-
-    let channels_usize = audio.channels.max(1) as usize;
-    let frames = resampled.len() / channels_usize;
-    let mut frame = 0_usize;
-    const CHUNK: usize = 2048;
-
-    while frame < frames {
-        let take = (frames - frame).min(CHUNK);
-        let mut planar = vec![vec![0.0_f32; take]; channels_usize];
-
-        for i in 0..take {
-            for ch in 0..channels_usize {
-                let s = resampled[(frame + i) * channels_usize + ch];
-                planar[ch][i] = (s as f32) / 32768.0;
-            }
-        }
-
-        encoder.encode_audio_block(&planar)?;
-        frame += take;
+pub fn pcm_to_wav_bytes(audio: &DecodedAudio) -> Result<Vec<u8>> {
+    if audio.channels == 0 || audio.sample_rate == 0 {
+        return Err(anyhow!("invalid pcm metadata"));
     }
 
-    let encoded = encoder.finish()?;
-    if let Some(parent) = out_path.parent() {
-        fs::create_dir_all(parent)?;
+    let channels = audio.channels as u32;
+    let sample_rate = audio.sample_rate;
+    let bytes_per_sample = 2_u32;
+    let block_align = (channels * bytes_per_sample) as u16;
+    let byte_rate = sample_rate
+        .checked_mul(channels)
+        .and_then(|v| v.checked_mul(bytes_per_sample))
+        .ok_or_else(|| anyhow!("wav byte rate overflow"))?;
+
+    let mut data_bytes = Vec::with_capacity(audio.interleaved_i16.len() * 2);
+    for sample in &audio.interleaved_i16 {
+        data_bytes.extend_from_slice(&sample.to_le_bytes());
     }
-    let mut file = fs::File::create(out_path)
-        .with_context(|| format!("failed to create '{}'", out_path.display()))?;
-    file.write_all(&encoded)
-        .with_context(|| format!("failed writing '{}'", out_path.display()))?;
-    Ok(())
+
+    let data_len = u32::try_from(data_bytes.len()).map_err(|_| anyhow!("wav payload too large"))?;
+    let riff_len = 36_u32
+        .checked_add(data_len)
+        .ok_or_else(|| anyhow!("wav riff size overflow"))?;
+
+    let mut out = Vec::with_capacity((44_u32 + data_len) as usize);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&riff_len.to_le_bytes());
+    out.extend_from_slice(b"WAVE");
+    out.extend_from_slice(b"fmt ");
+    out.extend_from_slice(&16_u32.to_le_bytes());
+    out.extend_from_slice(&1_u16.to_le_bytes());
+    out.extend_from_slice(&(audio.channels).to_le_bytes());
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    out.extend_from_slice(&byte_rate.to_le_bytes());
+    out.extend_from_slice(&block_align.to_le_bytes());
+    out.extend_from_slice(&16_u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    out.extend_from_slice(&data_bytes);
+    Ok(out)
 }
 
-fn linear_resample_interleaved_i16(input: &[i16], channels: u16, src_rate: u32, dst_rate: u32) -> Vec<i16> {
-    if src_rate == 0 || dst_rate == 0 || input.is_empty() {
-        return input.to_vec();
-    }
-
-    let ch = channels.max(1) as usize;
-    let in_frames = input.len() / ch;
-    if in_frames < 2 {
-        return input.to_vec();
-    }
-
-    let out_frames = ((in_frames as f64) * (dst_rate as f64) / (src_rate as f64)).round() as usize;
-    let mut out = vec![0_i16; out_frames * ch];
-
-    for i in 0..out_frames {
-        let src_pos = (i as f64) * (src_rate as f64) / (dst_rate as f64);
-        let idx0 = src_pos.floor() as usize;
-        let idx1 = (idx0 + 1).min(in_frames - 1);
-        let frac = (src_pos - (idx0 as f64)) as f32;
-
-        for c in 0..ch {
-            let s0 = input[idx0 * ch + c] as f32;
-            let s1 = input[idx1 * ch + c] as f32;
-            let v = s0 + (s1 - s0) * frac;
-            out[i * ch + c] = v.round().clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        }
-    }
-
-    out
+pub fn decode_wem_to_wav(path: &Path) -> Result<Vec<u8>> {
+    let decoded = decode_wem_to_pcm(path)
+        .with_context(|| format!("failed decoding wem '{}'", path.display()))?;
+    pcm_to_wav_bytes(&decoded)
 }
 
-struct StreamFileGuard<'a> {
-    api: &'a VgmstreamApi,
+struct StreamFileGuard {
     sf: Option<*mut LibStreamFile>,
 }
 
-impl StreamFileGuard<'_> {
+impl StreamFileGuard {
     fn close_now(&mut self) {
         if let Some(sf) = self.sf.take() {
-            unsafe { (self.api.close_sf)(sf) };
+            unsafe { libstreamfile_close(sf) };
         }
     }
 }
 
-impl Drop for StreamFileGuard<'_> {
+impl Drop for StreamFileGuard {
     fn drop(&mut self) {
         self.close_now();
     }
 }
 
-struct VgmstreamGuard<'a> {
-    api: &'a VgmstreamApi,
+struct VgmstreamGuard {
     lib: Option<*mut LibVgmstream>,
 }
 
-impl VgmstreamGuard<'_> {
+impl VgmstreamGuard {
     fn close_now(&mut self) {
         if let Some(lib) = self.lib.take() {
-            unsafe { (self.api.free)(lib) };
+            unsafe { libvgmstream_free(lib) };
         }
     }
 }
 
-impl Drop for VgmstreamGuard<'_> {
+impl Drop for VgmstreamGuard {
     fn drop(&mut self) {
         self.close_now();
     }

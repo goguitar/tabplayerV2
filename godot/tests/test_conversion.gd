@@ -17,9 +17,9 @@ func run(backend: Object, dlc_dir: String) -> Dictionary:
 		return result
 
 	if int(result["completed"]) <= 0:
-		result["message"] = "conversion completed count is zero"
+		result["message"] = "dlc rescan found zero songs"
 		return result
 
 	result["ok"] = true
-	result["message"] = "converted %d files" % int(result["completed"])
+	result["message"] = "rescanned %d songs" % int(result["completed"])
 	return result

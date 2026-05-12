@@ -1,13 +1,15 @@
 use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::fs;
+use std::process;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use rocksmith2014_psarc::Psarc;
 use rocksmith2014_sng::{BendValue, Note as SngNote, NoteMask as SngNoteMask, Platform as SngPlatform, Sng};
 use rocksmith2014_xml::{ChordTemplate, InstrumentalArrangement};
-use tabplayer_ffi::native_audio::{decode_wem_to_pcm, encode_ogg_48k};
+use tabplayer_ffi::native_audio::decode_wem_to_wav;
 
 use crate::models::{
     InstrumentConfig, LyricLine, LyricWord, NoteBlock, NoteBlockFlags, NoteType, SingleBend, SingleNote,
@@ -64,6 +66,178 @@ pub fn write_song_file_list(list: &SongFileList) -> Result<()> {
     Ok(())
 }
 
+pub fn parse_song_file_summary_from_psarc(path: &Path) -> Result<SongFile> {
+    let file_stem = path
+        .file_stem()
+        .and_then(|x| x.to_str())
+        .unwrap_or("unknown_song");
+    let folder_name = sanitize_folder_name(file_stem);
+
+    let mut psarc = Psarc::open(path).with_context(|| format!("failed opening psarc '{}'", path.display()))?;
+    let manifest = psarc.manifest().to_vec();
+
+    let arrangement_paths = manifest
+        .iter()
+        .filter(|x| {
+            x.starts_with("songs/arr/")
+                && x.ends_with(".xml")
+                && !x.contains("vocals")
+                && !x.contains("showlights")
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let mut parsed_arrangements = Vec::new();
+    for arrangement_path in arrangement_paths {
+        let data = psarc.inflate_file(&arrangement_path)?;
+        let xml = String::from_utf8(data)
+            .with_context(|| format!("invalid utf8 xml '{}'", arrangement_path))?;
+        let arrangement = InstrumentalArrangement::from_xml(&xml)
+            .map_err(|e| anyhow::anyhow!("failed parsing arrangement '{}': {e}", arrangement_path))?;
+        parsed_arrangements.push((arrangement_path, arrangement));
+    }
+
+    let mut metadata = if let Some((_, primary)) = parsed_arrangements.first() {
+        SongMetadata {
+            name: if primary.meta.song_name.is_empty() {
+                file_stem.replace('_', " ")
+            } else {
+                primary.meta.song_name.clone()
+            },
+            artist: if primary.meta.artist_name.is_empty() {
+                "Unknown Artist".to_string()
+            } else {
+                primary.meta.artist_name.clone()
+            },
+            album: if primary.meta.album_name.is_empty() {
+                "Unknown Album".to_string()
+            } else {
+                primary.meta.album_name.clone()
+            },
+            year: if primary.meta.album_year > 0 {
+                Some(primary.meta.album_year)
+            } else {
+                None
+            },
+            song_length: if primary.meta.song_length > 0 {
+                primary.meta.song_length as f64 / 1000.0
+            } else {
+                0.0
+            },
+        }
+    } else {
+        metadata_from_file_stem(file_stem)
+    };
+
+    let mut instruments = Vec::<SongFileInstrument>::new();
+    if parsed_arrangements.is_empty() {
+        let mut names = manifest
+            .iter()
+            .filter(|x| x.to_ascii_lowercase().ends_with(".sng"))
+            .filter_map(|x| instrument_name_from_sng_path(x))
+            .filter(|name| name != "vocals" && name != "showlights")
+            .collect::<Vec<_>>();
+        names.sort_by_key(|x| instrument_order_key(x));
+        names.dedup();
+        for (i, name) in names.into_iter().enumerate() {
+            instruments.push(SongFileInstrument {
+                name,
+                is_main: i == 0,
+                tuning: vec![0; 6],
+                note_count: 0,
+                capo_fret: 0.0,
+            });
+        }
+    } else {
+        for (arrangement_path, arrangement) in parsed_arrangements {
+            let instrument_name = instrument_name_from_path(&arrangement_path);
+            let level = arrangement
+                .levels
+                .iter()
+                .max_by_key(|x| x.difficulty)
+                .or_else(|| arrangement.levels.first());
+            let note_count = level
+                .map(|x| x.notes.len() + x.chords.len())
+                .unwrap_or(0);
+            instruments.push(SongFileInstrument {
+                name: instrument_name,
+                is_main: false,
+                tuning: arrangement.meta.tuning.strings.iter().copied().collect(),
+                note_count,
+                capo_fret: arrangement.meta.capo as f32,
+            });
+        }
+        instruments.sort_by_key(|x| instrument_order_key(&x.name));
+        for (i, inst) in instruments.iter_mut().enumerate() {
+            inst.is_main = i == 0;
+        }
+    }
+
+    if metadata.song_length <= 0.0 {
+        metadata.song_length = 0.0;
+    }
+
+    let has_vocals = manifest
+        .iter()
+        .any(|x| x.to_ascii_lowercase().ends_with("_vocals.sng") || x.to_ascii_lowercase().contains("vocals"));
+
+    Ok(SongFile {
+        folder_name,
+        song_name: metadata.name,
+        artist: metadata.artist,
+        album: metadata.album,
+        year: metadata.year,
+        length: metadata.song_length,
+        instruments,
+        lyrics: if has_vocals {
+            Some(crate::models::SongFileLyrics { word_count: 1 })
+        } else {
+            None
+        },
+    })
+}
+
+pub fn parse_song_file_from_psarc(path: &Path) -> Result<SongFile> {
+    let file_stem = path
+        .file_stem()
+        .and_then(|x| x.to_str())
+        .unwrap_or("unknown_song");
+    let folder_name = sanitize_folder_name(file_stem);
+    let (_, song_file) = parse_song_models_from_psarc(path, folder_name)?;
+    Ok(song_file)
+}
+
+pub fn load_song_data_from_psarc(path: &Path) -> Result<SongData> {
+    let file_stem = path
+        .file_stem()
+        .and_then(|x| x.to_str())
+        .unwrap_or("unknown_song");
+    let folder_name = sanitize_folder_name(file_stem);
+    let (song_data, _) = parse_song_models_from_psarc(path, folder_name)?;
+    Ok(song_data)
+}
+
+pub fn load_album_art_dds_from_psarc(path: &Path) -> Result<Option<Vec<u8>>> {
+    let mut psarc = Psarc::open(path).with_context(|| format!("failed opening psarc '{}'", path.display()))?;
+    let manifest = psarc.manifest().to_vec();
+    let Some(art_path) = pick_album_art_path(&manifest) else {
+        return Ok(None);
+    };
+    let bytes = psarc.inflate_file(&art_path)?;
+    Ok(Some(bytes))
+}
+
+pub fn load_audio_wav_bytes_from_psarc(path: &Path) -> Result<Option<Vec<u8>>> {
+    let mut psarc = Psarc::open(path).with_context(|| format!("failed opening psarc '{}'", path.display()))?;
+    let manifest = psarc.manifest().to_vec();
+    let Some(wem_path) = pick_audio_wem_path(&mut psarc, &manifest) else {
+        return Ok(None);
+    };
+    let wem_bytes = psarc.inflate_file(&wem_path)?;
+    let wav_bytes = decode_wem_bytes_to_wav_bytes(&wem_bytes)?;
+    Ok(Some(wav_bytes))
+}
+
 pub fn import_psarc_files(paths: &[PathBuf]) -> Result<ImportReport> {
     let mut report = ImportReport::default();
     let root = song_root_folder();
@@ -101,6 +275,8 @@ fn import_single_psarc(path: &Path) -> Result<(SongFile, ImportEntry)> {
         .unwrap_or("unknown_song");
     let folder_name = sanitize_folder_name(file_stem);
 
+    let (song_data, song_file) = parse_song_models_from_psarc(path, folder_name.clone())?;
+
     let song_dir = song_root_folder().join(&folder_name);
     fs::create_dir_all(&song_dir)?;
 
@@ -111,8 +287,53 @@ fn import_single_psarc(path: &Path) -> Result<(SongFile, ImportEntry)> {
     );
     fs::copy(path, copied_psarc).with_context(|| format!("failed copying '{}'", path.display()))?;
 
-    let mut psarc = Psarc::open(path).with_context(|| format!("failed opening psarc '{}'", path.display()))?;
+    let data_path = song_dir.join("data.json");
+    fs::write(&data_path, serde_json::to_vec_pretty(&song_data)?)?;
 
+    let mut psarc = Psarc::open(path).with_context(|| format!("failed opening psarc '{}'", path.display()))?;
+    let manifest = psarc.manifest().to_vec();
+
+    if let Some(art_path) = pick_album_art_path(&manifest) {
+        if let Ok(bytes) = psarc.inflate_file(&art_path) {
+            let art_file = song_dir.join("album.dds");
+            let _ = fs::write(art_file, bytes);
+        }
+    }
+
+    if let Some(wem_path) = pick_audio_wem_path(&mut psarc, &manifest) {
+        if let Ok(bytes) = psarc.inflate_file(&wem_path) {
+            let wem_file = song_dir.join("song.wem");
+            let _ = fs::write(&wem_file, bytes);
+            let wav_file = song_dir.join("song.wav");
+            match decode_wem_to_wav(&wem_file) {
+                Ok(wav_bytes) => {
+                    if let Err(err) = fs::write(&wav_file, wav_bytes) {
+                        eprintln!("[audio] failed writing wav for '{}': {err}", wem_file.display());
+                    }
+                }
+                Err(err) => {
+                    eprintln!("[audio] failed decoding wem '{}': {err}", wem_file.display());
+                }
+            }
+        }
+    }
+
+    Ok((
+        song_file,
+        ImportEntry {
+            source_path: path.to_path_buf(),
+            folder_name,
+        },
+    ))
+}
+
+fn parse_song_models_from_psarc(path: &Path, folder_name: String) -> Result<(SongData, SongFile)> {
+    let file_stem = path
+        .file_stem()
+        .and_then(|x| x.to_str())
+        .unwrap_or("unknown_song");
+
+    let mut psarc = Psarc::open(path).with_context(|| format!("failed opening psarc '{}'", path.display()))?;
     let manifest = psarc.manifest().to_vec();
 
     let arrangement_paths = manifest
@@ -125,10 +346,6 @@ fn import_single_psarc(path: &Path) -> Result<(SongFile, ImportEntry)> {
         })
         .cloned()
         .collect::<Vec<_>>();
-
-    if arrangement_paths.is_empty() {
-        anyhow::bail!("no arrangement xml entries in '{}'", path.display());
-    }
 
     let mut parsed_arrangements = Vec::new();
     for arrangement_path in arrangement_paths {
@@ -161,45 +378,63 @@ fn import_single_psarc(path: &Path) -> Result<(SongFile, ImportEntry)> {
         }
     }
 
-    let (_, primary) = parsed_arrangements
-        .first()
-        .ok_or_else(|| anyhow::anyhow!("no parsed arrangements for '{}'", path.display()))?;
-
-    let metadata = SongMetadata {
-        name: if primary.meta.song_name.is_empty() {
-            file_stem.replace('_', " ")
-        } else {
-            primary.meta.song_name.clone()
-        },
-        artist: if primary.meta.artist_name.is_empty() {
-            "Unknown Artist".to_string()
-        } else {
-            primary.meta.artist_name.clone()
-        },
-        album: if primary.meta.album_name.is_empty() {
-            "Unknown Album".to_string()
-        } else {
-            primary.meta.album_name.clone()
-        },
-        year: if primary.meta.album_year > 0 {
-            Some(primary.meta.album_year)
-        } else {
-            None
-        },
-        song_length: if primary.meta.song_length > 0 {
-            primary.meta.song_length as f64 / 1000.0
-        } else {
-            0.0
-        },
+    let mut metadata = if let Some((_, primary)) = parsed_arrangements.first() {
+        SongMetadata {
+            name: if primary.meta.song_name.is_empty() {
+                file_stem.replace('_', " ")
+            } else {
+                primary.meta.song_name.clone()
+            },
+            artist: if primary.meta.artist_name.is_empty() {
+                "Unknown Artist".to_string()
+            } else {
+                primary.meta.artist_name.clone()
+            },
+            album: if primary.meta.album_name.is_empty() {
+                "Unknown Album".to_string()
+            } else {
+                primary.meta.album_name.clone()
+            },
+            year: if primary.meta.album_year > 0 {
+                Some(primary.meta.album_year)
+            } else {
+                None
+            },
+            song_length: if primary.meta.song_length > 0 {
+                primary.meta.song_length as f64 / 1000.0
+            } else {
+                0.0
+            },
+        }
+    } else {
+        metadata_from_file_stem(file_stem)
     };
 
     let mut instruments = Vec::new();
-    for (arrangement_path, arrangement) in parsed_arrangements {
-        let instrument_name = instrument_name_from_path(&arrangement_path);
-        let instrument = convert_instrument(&instrument_name, &arrangement, sng_by_instrument.get(&instrument_name));
-        instruments.push(instrument);
+    if parsed_arrangements.is_empty() {
+        for (instrument_name, sng) in &sng_by_instrument {
+            let instrument = convert_sng_only_instrument(instrument_name, sng);
+            instruments.push(instrument);
+        }
+    } else {
+        for (arrangement_path, arrangement) in parsed_arrangements {
+            let instrument_name = instrument_name_from_path(&arrangement_path);
+            let instrument = convert_instrument(&instrument_name, &arrangement, sng_by_instrument.get(&instrument_name));
+            instruments.push(instrument);
+        }
     }
     instruments.sort_by_key(|x| instrument_order_key(&x.name));
+
+    if instruments.is_empty() {
+        anyhow::bail!("no playable instruments in '{}'", path.display());
+    }
+
+    if metadata.song_length <= 0.0 {
+        metadata.song_length = instruments
+            .iter()
+            .filter_map(|inst| inst.notes.last().map(|n| n.time))
+            .fold(0.0_f64, f64::max);
+    }
 
     let lyrics = vocals_sng.as_ref().and_then(parse_vocals_from_sng);
 
@@ -209,36 +444,8 @@ fn import_single_psarc(path: &Path) -> Result<(SongFile, ImportEntry)> {
         lyrics,
     };
 
-    let data_path = song_dir.join("data.json");
-    fs::write(&data_path, serde_json::to_vec_pretty(&song_data)?)?;
-
-    if let Some(art_path) = pick_album_art_path(&manifest) {
-        if let Ok(bytes) = psarc.inflate_file(&art_path) {
-            let art_file = song_dir.join("album.dds");
-            let _ = fs::write(art_file, bytes);
-        }
-    }
-
-    if let Some(wem_path) = pick_audio_wem_path(&manifest) {
-        if let Ok(bytes) = psarc.inflate_file(&wem_path) {
-            let wem_file = song_dir.join("song.wem");
-            let _ = fs::write(&wem_file, bytes);
-            let ogg_file = song_dir.join("song.ogg");
-            match decode_wem_to_pcm(&wem_file) {
-                Ok(decoded) => {
-                    if let Err(err) = encode_ogg_48k(&decoded, &ogg_file) {
-                        eprintln!("[audio] failed encoding ogg for '{}': {err}", wem_file.display());
-                    }
-                }
-                Err(err) => {
-                    eprintln!("[audio] failed decoding wem '{}': {err}", wem_file.display());
-                }
-            }
-        }
-    }
-
     let song_file = SongFile {
-        folder_name: folder_name.clone(),
+        folder_name,
         song_name: metadata.name,
         artist: metadata.artist,
         album: metadata.album,
@@ -260,13 +467,75 @@ fn import_single_psarc(path: &Path) -> Result<(SongFile, ImportEntry)> {
         }),
     };
 
-    Ok((
-        song_file,
-        ImportEntry {
-            source_path: path.to_path_buf(),
-            folder_name,
+    Ok((song_data, song_file))
+}
+
+fn metadata_from_file_stem(file_stem: &str) -> SongMetadata {
+    let normalized = file_stem.replace('_', " ").replace('-', " ");
+    let (artist, name) = if let Some((artist, title)) = file_stem.split_once('_') {
+        (
+            artist.replace('-', " ").trim().to_string(),
+            title.replace('-', " ").replace('_', " ").trim().to_string(),
+        )
+    } else {
+        ("Unknown Artist".to_string(), normalized.trim().to_string())
+    };
+
+    SongMetadata {
+        name: if name.is_empty() {
+            "Unknown Song".to_string()
+        } else {
+            name
         },
-    ))
+        artist: if artist.is_empty() {
+            "Unknown Artist".to_string()
+        } else {
+            artist
+        },
+        album: "Unknown Album".to_string(),
+        year: None,
+        song_length: 0.0,
+    }
+}
+
+fn convert_sng_only_instrument(name: &str, sng: &Sng) -> SongInstrument {
+    let notes = build_note_blocks_from_sng(sng);
+    let string_count = notes
+        .iter()
+        .flat_map(|x| x.notes.iter().map(|n| n.string_num.max(0) as usize + 1))
+        .max()
+        .unwrap_or(6)
+        .max(4)
+        .min(7);
+
+    SongInstrument {
+        name: name.to_string(),
+        config: InstrumentConfig {
+            note_speed: 40.0,
+            tuning: vec![0_i16; string_count],
+            capo_fret: 0.0,
+        },
+        notes,
+    }
+}
+
+fn decode_wem_bytes_to_wav_bytes(wem_bytes: &[u8]) -> Result<Vec<u8>> {
+    let temp_name = format!(
+        "tabplayer_{}_{}_{}.wem",
+        process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis(),
+        wem_bytes.len()
+    );
+    let temp_path = env::temp_dir().join(temp_name);
+    fs::write(&temp_path, wem_bytes)
+        .with_context(|| format!("failed writing temp wem '{}'", temp_path.display()))?;
+
+    let decode_result = decode_wem_to_wav(&temp_path);
+    let _ = fs::remove_file(&temp_path);
+    decode_result
 }
 
 fn convert_instrument(name: &str, arrangement: &InstrumentalArrangement, sng: Option<&Sng>) -> SongInstrument {
@@ -871,27 +1140,75 @@ fn pick_album_art_path(manifest: &[String]) -> Option<String> {
         .or_else(|| candidates.first().cloned())
 }
 
-fn pick_audio_wem_path(manifest: &[String]) -> Option<String> {
-    let mut candidates = manifest
+fn pick_audio_wem_path<R: std::io::Read + std::io::Seek>(
+    psarc: &mut Psarc<R>,
+    manifest: &[String],
+) -> Option<String> {
+    let mut wem_candidates = manifest
         .iter()
         .filter(|p| p.to_ascii_lowercase().ends_with(".wem"))
-        .filter(|p| {
-            let lower = p.to_ascii_lowercase();
-            !lower.contains("preview") && !lower.contains("_p")
-        })
         .cloned()
         .collect::<Vec<_>>();
+    wem_candidates.sort();
 
-    if candidates.is_empty() {
-        candidates = manifest
-            .iter()
-            .filter(|p| p.to_ascii_lowercase().ends_with(".wem"))
-            .cloned()
-            .collect::<Vec<_>>();
+    if wem_candidates.is_empty() {
+        return None;
+    }
+    if wem_candidates.len() == 1 {
+        return wem_candidates.into_iter().next();
     }
 
-    candidates.sort();
-    candidates.into_iter().next()
+    let mut bnk_candidates = manifest
+        .iter()
+        .filter(|p| p.to_ascii_lowercase().ends_with(".bnk"))
+        .cloned()
+        .collect::<Vec<_>>();
+    bnk_candidates.sort_by_key(|p| {
+        let lower = p.to_ascii_lowercase();
+        if lower.contains("preview") {
+            1
+        } else {
+            0
+        }
+    });
+
+    let mut preview_match: Option<String> = None;
+    for bnk in bnk_candidates {
+        let Ok(bytes) = psarc.inflate_file(&bnk) else {
+            continue;
+        };
+        let bnk_is_preview = bnk.to_ascii_lowercase().contains("preview");
+        for wem in &wem_candidates {
+            let Some(wem_id) = wem_id_from_path(wem) else {
+                continue;
+            };
+            if bytes.windows(4).any(|w| w == wem_id.to_le_bytes()) {
+                if bnk_is_preview {
+                    if preview_match.is_none() {
+                        preview_match = Some(wem.clone());
+                    }
+                } else {
+                    return Some(wem.clone());
+                }
+            }
+        }
+    }
+
+    preview_match.or_else(|| {
+        wem_candidates
+            .iter()
+            .find(|p| !p.to_ascii_lowercase().contains("preview"))
+            .cloned()
+            .or_else(|| wem_candidates.first().cloned())
+    })
+}
+
+fn wem_id_from_path(path: &str) -> Option<u32> {
+    path.rsplit('/')
+        .next()?
+        .strip_suffix(".wem")?
+        .parse::<u32>()
+        .ok()
 }
 
 fn is_dds_path(path: &str) -> bool {

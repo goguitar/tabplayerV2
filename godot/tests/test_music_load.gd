@@ -25,6 +25,11 @@ func run(backend: Object) -> Dictionary:
 		result["message"] = "song has no notes"
 		return result
 
+	var audio_status: Dictionary = backend.song_audio_status(folder)
+	if not bool(audio_status.get("ok", false)):
+		result["message"] = "song audio unavailable: %s" % str(audio_status.get("error", "unknown"))
+		return result
+
 	result["ok"] = true
 	result["message"] = "loaded '%s' by '%s'" % [str(summary.get("name", "")), str(summary.get("artist", ""))]
 	return result

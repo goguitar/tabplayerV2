@@ -73,11 +73,13 @@ text = "0 songs shown"
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="SongsItemList" type="ItemList" parent="MarginContainer/VBoxContainer/ContentSplit"]
+[node name="SongsTree" type="Tree" parent="MarginContainer/VBoxContainer/ContentSplit"]
 custom_minimum_size = Vector2(500, 0)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
+columns = 6
+column_titles_visible = true
 
 [node name="DetailsVBox" type="VBoxContainer" parent="MarginContainer/VBoxContainer/ContentSplit"]
 layout_mode = 2
@@ -284,8 +286,9 @@ size = Vector2i(420, 100)
 [connection signal="text_changed" from="MarginContainer/VBoxContainer/FilterHBox/FilterLineEdit" to="." method="UpdateFilter"]
 [connection signal="item_selected" from="MarginContainer/VBoxContainer/FilterHBox/TuningOptionButton" to="." method="TuningSelected"]
 [connection signal="pressed" from="MarginContainer/VBoxContainer/FilterHBox/CapoCheckBox" to="." method="ShowCapo_Pressed"]
-[connection signal="item_selected" from="MarginContainer/VBoxContainer/ContentSplit/SongsItemList" to="." method="SongSelected"]
-[connection signal="item_activated" from="MarginContainer/VBoxContainer/ContentSplit/SongsItemList" to="." method="SongActivated"]
+[connection signal="item_selected" from="MarginContainer/VBoxContainer/ContentSplit/SongsTree" to="." method="SongSelected"]
+[connection signal="item_activated" from="MarginContainer/VBoxContainer/ContentSplit/SongsTree" to="." method="SongActivated"]
+[connection signal="column_title_clicked" from="MarginContainer/VBoxContainer/ContentSplit/SongsTree" to="." method="SongColumnTitleClicked"]
 [connection signal="pressed" from="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer/InstrumentButton0" to="." method="InstrumentButton0_Pressed"]
 [connection signal="pressed" from="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer/InstrumentButton1" to="." method="InstrumentButton1_Pressed"]
 [connection signal="pressed" from="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer/InstrumentButton2" to="." method="InstrumentButton2_Pressed"]

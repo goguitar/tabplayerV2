@@ -24,7 +24,7 @@ text = "Back
 
 [node name="HeadingLabel" type="Label" parent="HBoxContainer"]
 layout_mode = 2
-text = "Convert a single .psarc file or select a folder to search"
+text = "Rescan DLC (.psarc) metadata from source folders"
 label_settings = SubResource("LabelSettings_yv0al")
 
 [node name="HSplitContainer" type="HSplitContainer" parent="."]
@@ -32,16 +32,16 @@ layout_mode = 2
 
 [node name="RecreateRadio" type="CheckButton" parent="."]
 layout_mode = 2
-text = "Overwrite existing files"
+text = "Scan recursively"
 
 [node name="CopySourceRadio" type="CheckButton" parent="."]
 layout_mode = 2
 button_pressed = true
-text = "Copy psarc into output"
+text = "Use source .psarc only"
 
 [node name="ChoseButton" type="Button" parent="."]
 layout_mode = 2
-text = "Manually Choose Files"
+text = "Choose DLC Folder"
 
 [node name="OrLabel" type="Label" parent="."]
 layout_mode = 2
@@ -50,7 +50,7 @@ horizontal_alignment = 1
 
 [node name="FromDownloadsButton" type="Button" parent="."]
 layout_mode = 2
-text = "Convert All from Downloads"
+text = "Rescan Default DLC"
 
 [node name="InfoLabel" type="Label" parent="."]
 layout_mode = 2

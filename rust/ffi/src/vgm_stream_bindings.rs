@@ -41,3 +41,15 @@ pub type LibvgmstreamFill = unsafe extern "C" fn(
     buf: *mut c_void,
     buf_samples: c_int,
 ) -> c_int;
+
+unsafe extern "C" {
+    pub fn libstreamfile_open_from_stdio(filename: *const c_char) -> *mut LibStreamFile;
+    pub fn libstreamfile_close(libsf: *mut LibStreamFile);
+    pub fn libvgmstream_create(
+        libsf: *mut LibStreamFile,
+        subsong: c_int,
+        cfg: *mut c_void,
+    ) -> *mut LibVgmstream;
+    pub fn libvgmstream_free(lib: *mut LibVgmstream);
+    pub fn libvgmstream_fill(lib: *mut LibVgmstream, buf: *mut c_void, buf_samples: c_int) -> c_int;
+}

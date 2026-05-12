@@ -1,74 +1,55 @@
 #![allow(non_snake_case)]
 
-use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::{cmp::Ordering};
 
+use anyhow::anyhow;
+use godot::classes::base_material_3d::Transparency;
 use godot::classes::{
-    AudioServer, AudioStreamOggVorbis, AudioStreamPlayer, AudioStreamWav, BoxMesh, Button, Camera3D, CheckBox, ConfirmationDialog, Engine,
-    CompressedTexture2D, Control, DirectionalLight3D, FileDialog, IControl, INode, INode2D, INode3D,
-    IRefCounted, IVBoxContainer, Image, ImageTexture, ItemList, Label, LineEdit, MenuButton,
+    AudioServer, AudioStreamPlayer, AudioStreamWav, BoxMesh, Button, Camera3D, CheckBox, ConfirmationDialog, Engine, Control,
+    DirectionalLight3D, FileDialog, IControl, INode, INode2D, INode3D,
+    IRefCounted, IVBoxContainer, Image, ImageTexture, Label, LineEdit, MenuButton,
     Label3D, Material, Mesh, MeshInstance3D, Node, Node2D, Node3D, OptionButton, Os, PlaneMesh, RefCounted,
-    RichTextLabel, StandardMaterial3D, TextureRect, VBoxContainer,
+    RichTextLabel, StandardMaterial3D, TextureRect, Tree, VBoxContainer,
 };
 use godot::prelude::*;
 use once_cell::sync::Lazy;
 use tabplayer_parser::index::{
-    import_psarc_files as parser_import_psarc_files, read_song_file_list, song_root_folder,
+    song_root_folder,
 };
 use tabplayer_parser::models::{SongData, SongFile};
-use tabplayer_parser::song_loader::load_song;
+use tabplayer_parser::song_catalog::{
+    ensure_default_loaded as ensure_song_catalog_loaded, list_song_files as catalog_list_song_files,
+    load_song_album_art as catalog_load_song_album_art,
+    load_song_audio_wav as catalog_load_song_audio_wav, load_song_data as catalog_load_song_data,
+    rescan_default_dlc as catalog_rescan_default_dlc, rescan_dlc_dir as catalog_rescan_dlc_dir,
+};
 use tabplayer_sync::song_clock::SongClock;
 
 static PENDING_SONG: Lazy<Mutex<Option<PendingSong>>> = Lazy::new(|| Mutex::new(None));
 
 #[derive(Clone)]
 struct PendingSong {
-    folder: String,
+    song_id: String,
     instrument: String,
 }
 
-fn read_song_data(folder: &str) -> Option<SongData> {
-    load_song(folder).ok()
+fn read_song_data(song_id: &str) -> Option<SongData> {
+    catalog_load_song_data(song_id).ok()
 }
 
-fn find_song_audio_file(folder: &str) -> Option<PathBuf> {
-    let song_dir = song_root_folder().join(folder);
-    let entries = fs::read_dir(song_dir).ok()?;
-
-    let mut preferred_ogg: Option<PathBuf> = None;
-    let mut first_wav: Option<PathBuf> = None;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        match path.extension().and_then(|x| x.to_str()) {
-            Some("ogg") => {
-                if path.file_name().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("song.ogg")) {
-                    return Some(path);
-                }
-                if preferred_ogg.is_none() {
-                    preferred_ogg = Some(path);
-                }
-            }
-            Some("wav") if first_wav.is_none() => first_wav = Some(path),
-            _ => {}
-        }
-    }
-
-    preferred_ogg.or(first_wav)
+fn load_song_audio_stream(song_id: &str) -> anyhow::Result<Gd<godot::classes::AudioStream>> {
+    let wav_bytes = catalog_load_song_audio_wav(song_id)
+        .map_err(|e| anyhow!("failed decoding audio from psarc: {e}"))?;
+    let packed: PackedByteArray = wav_bytes.into_iter().collect();
+    let stream = AudioStreamWav::load_from_buffer(&packed)
+        .ok_or_else(|| anyhow!("godot failed loading wav from buffer"))?;
+    Ok(stream.upcast())
 }
 
-fn load_dds_texture(path: &PathBuf) -> Option<Gd<godot::classes::Texture2D>> {
-    let mut compressed = CompressedTexture2D::new_gd();
-    if compressed.load(&path.to_string_lossy().to_string()) == godot::global::Error::OK {
-        let tex2d: Gd<godot::classes::Texture2D> = compressed.upcast();
-        return Some(tex2d);
-    }
-
-    let bytes = fs::read(path).ok()?;
-    let packed: PackedByteArray = bytes.into_iter().collect();
+fn load_dds_texture_from_bytes(bytes: &[u8]) -> Option<Gd<godot::classes::Texture2D>> {
+    let packed: PackedByteArray = bytes.iter().copied().collect();
     let mut image = Image::new_gd();
     if image.load_dds_from_buffer(&packed) != godot::global::Error::OK {
         return None;
@@ -77,29 +58,9 @@ fn load_dds_texture(path: &PathBuf) -> Option<Gd<godot::classes::Texture2D>> {
     Some(tex.upcast())
 }
 
-fn collect_psarc_files_recursive(dir: &PathBuf) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    let Ok(entries) = fs::read_dir(dir) else {
-        return files;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            files.extend(collect_psarc_files_recursive(&path));
-            continue;
-        }
-        if path.extension().and_then(|x| x.to_str()) == Some("psarc") {
-            files.push(path);
-        }
-    }
-
-    files
-}
-
-fn set_pending_song(folder: String, instrument: String) {
+fn set_pending_song(song_id: String, instrument: String) {
     if let Ok(mut lock) = PENDING_SONG.lock() {
-        *lock = Some(PendingSong { folder, instrument });
+        *lock = Some(PendingSong { song_id, instrument });
     }
 }
 
@@ -212,7 +173,8 @@ impl IControl for StartMenu {
     }
 
     fn ready(&mut self) {
-        let song_count = read_song_file_list().data.len();
+        let _ = ensure_song_catalog_loaded();
+        let song_count = catalog_list_song_files().len();
         let mut label = self.base().get_node_as::<Label>("%SongCountLabel");
         let text = format!("{song_count} songs");
         label.set_text(&text);
@@ -265,7 +227,8 @@ impl StartMenu {
 
     #[func]
     fn ReloadButton_Pressed(&mut self) {
-        let song_count = read_song_file_list().data.len();
+        let _ = catalog_rescan_default_dlc();
+        let song_count = catalog_list_song_files().len();
         let mut label = self.base().get_node_as::<Label>("%SongCountLabel");
         let text = format!("{song_count} songs");
         label.set_text(&text);
@@ -295,6 +258,8 @@ struct SongPick {
     tuning_filter: String,
     search_filter: String,
     show_capo: bool,
+    sort_column: i32,
+    sort_desc: bool,
     pending_confirm: Option<(String, String)>,
     display_instruments: Vec<String>,
 }
@@ -310,13 +275,17 @@ impl IControl for SongPick {
             tuning_filter: String::new(),
             search_filter: String::new(),
             show_capo: false,
+            sort_column: 0,
+            sort_desc: false,
             pending_confirm: None,
             display_instruments: Vec::new(),
         }
     }
 
     fn ready(&mut self) {
-        self.songs = read_song_file_list().data;
+        let _ = ensure_song_catalog_loaded();
+        self.songs = catalog_list_song_files();
+        self.configure_song_tree();
         self.populate_tuning_filter();
         self.refresh_song_list();
     }
@@ -324,6 +293,21 @@ impl IControl for SongPick {
 
 #[godot_api]
 impl SongPick {
+    fn configure_song_tree(&mut self) {
+        let mut tree = self
+            .base()
+            .get_node_as::<Tree>("MarginContainer/VBoxContainer/ContentSplit/SongsTree");
+        tree.set_columns(6);
+        tree.set_column_titles_visible(true);
+        tree.set_hide_root(true);
+        tree.set_column_title(0, "Song Name");
+        tree.set_column_title(1, "Artist");
+        tree.set_column_title(2, "Album");
+        tree.set_column_title(3, "Year");
+        tree.set_column_title(4, "Length");
+        tree.set_column_title(5, "Parts");
+    }
+
     fn get_main_instrument<'a>(&self, song: &'a SongFile) -> Option<&'a tabplayer_parser::models::SongFileInstrument> {
         song.instruments
             .iter()
@@ -366,15 +350,35 @@ impl SongPick {
             }
         }
 
+        let sort_column = self.sort_column;
+        let sort_desc = self.sort_desc;
+        let songs = &self.songs;
+        self.visible_indices.sort_by(|a, b| {
+            SongPick::compare_song_indices(songs, sort_column, sort_desc, *a, *b)
+        });
+
         let mut list = self
             .base()
-            .get_node_as::<ItemList>("MarginContainer/VBoxContainer/ContentSplit/SongsItemList");
+            .get_node_as::<Tree>("MarginContainer/VBoxContainer/ContentSplit/SongsTree");
         list.clear();
+
+        let Some(root) = list.create_item() else {
+            return;
+        };
 
         for song_idx in &self.visible_indices {
             let song = &self.songs[*song_idx];
-            let text = format!("{} - {}", song.artist, song.song_name);
-            list.add_item(&text);
+            let Some(mut row) = list.create_item_ex().parent(&root).done() else {
+                continue;
+            };
+
+            row.set_text(0, &song.song_name);
+            row.set_text(1, &song.artist);
+            row.set_text(2, &song.album);
+            row.set_text(3, &song.year.map(|x| x.to_string()).unwrap_or_default());
+            row.set_text(4, &to_min_sec(song.length));
+            row.set_text(5, &SongPick::song_parts_text(song));
+            row.set_metadata(0, &(*song_idx as i64).to_variant());
         }
 
         let mut shown = self
@@ -391,10 +395,101 @@ impl SongPick {
             .selected_index
             .and_then(|selected| self.visible_indices.iter().position(|x| *x == selected))
             .unwrap_or(0);
-        list.select(selected_song_idx as i32);
+
         let song_idx = self.visible_indices[selected_song_idx];
+        self.select_song_row(song_idx);
         self.selected_index = Some(song_idx);
         self.update_selected_song_ui(song_idx);
+    }
+
+    fn song_parts_text(song: &SongFile) -> String {
+        let mut chars = [' '; 5];
+        if song.instruments.iter().any(|x| {
+            let name = x.name.to_ascii_lowercase();
+            name == "lead" || name == "lead1" || name == "lead2"
+        }) {
+            chars[0] = 'L';
+        }
+        if song.instruments.iter().any(|x| {
+            let name = x.name.to_ascii_lowercase();
+            name == "rhythm" || name == "rhythm1" || name == "rhythm2"
+        }) {
+            chars[1] = 'R';
+        }
+        if song.instruments.iter().any(|x| {
+            let name = x.name.to_ascii_lowercase();
+            name == "bass" || name == "bass1" || name == "bass2"
+        }) {
+            chars[2] = 'B';
+        }
+        if song.lyrics.as_ref().is_some_and(|x| x.word_count > 0) {
+            chars[3] = 'V';
+        }
+
+        let other = song
+            .instruments
+            .iter()
+            .filter(|x| {
+                let name = x.name.to_ascii_lowercase();
+                !(name == "lead"
+                    || name == "lead1"
+                    || name == "lead2"
+                    || name == "rhythm"
+                    || name == "rhythm1"
+                    || name == "rhythm2"
+                    || name == "bass"
+                    || name == "bass1"
+                    || name == "bass2")
+            })
+            .count();
+        if other > 0 {
+            chars[4] = other.to_string().chars().next().unwrap_or(' ');
+        }
+
+        chars.iter().collect()
+    }
+
+    fn compare_song_indices(
+        songs: &[SongFile],
+        sort_column: i32,
+        sort_desc: bool,
+        a: usize,
+        b: usize,
+    ) -> Ordering {
+        let sa = &songs[a];
+        let sb = &songs[b];
+        let ord = match sort_column {
+            1 => sa.artist.to_lowercase().cmp(&sb.artist.to_lowercase()),
+            2 => sa.album.to_lowercase().cmp(&sb.album.to_lowercase()),
+            3 => sa.year.unwrap_or(0).cmp(&sb.year.unwrap_or(0)),
+            4 => sa.length.partial_cmp(&sb.length).unwrap_or(Ordering::Equal),
+            5 => SongPick::song_parts_text(sa).cmp(&SongPick::song_parts_text(sb)),
+            _ => sa.song_name.to_lowercase().cmp(&sb.song_name.to_lowercase()),
+        };
+
+        if sort_desc {
+            ord.reverse()
+        } else {
+            ord
+        }
+    }
+
+    fn select_song_row(&mut self, song_idx: usize) {
+        let mut tree = self
+            .base()
+            .get_node_as::<Tree>("MarginContainer/VBoxContainer/ContentSplit/SongsTree");
+
+        let Some(root) = tree.get_root() else {
+            return;
+        };
+        let mut current = root.get_first_child();
+        while let Some(item) = current {
+            if item.get_metadata(0).try_to::<i64>().ok() == Some(song_idx as i64) {
+                tree.set_selected(&item, 0);
+                return;
+            }
+            current = item.get_next();
+        }
     }
 
     fn song_visible(&self, song: &SongFile) -> bool {
@@ -528,27 +623,11 @@ impl SongPick {
             }
         }
 
-        let song_dir = song_root_folder().join(&song.folder_name);
-        let album_art = ["album.dds"]
-            .iter()
-            .map(|name| song_dir.join(name))
-            .find(|p| p.exists())
-            .or_else(|| {
-                fs::read_dir(&song_dir)
-                    .ok()?
-                    .flatten()
-                    .map(|e| e.path())
-                    .find(|p| {
-                        p.extension()
-                            .and_then(|x| x.to_str())
-                            .is_some_and(|x| x.eq_ignore_ascii_case("dds"))
-                    })
-            });
         let mut album_tex = self.base().get_node_as::<TextureRect>(
             "MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/AlbumArtTextureRect",
         );
-        if let Some(album_art) = album_art {
-            if let Some(tex2d) = load_dds_texture(&album_art) {
+        if let Ok(Some(bytes)) = catalog_load_song_album_art(&song.folder_name) {
+            if let Some(tex2d) = load_dds_texture_from_bytes(&bytes) {
                 let _ = album_tex.call("set_texture", &[tex2d.to_variant()]);
                 return;
             }
@@ -573,12 +652,14 @@ impl SongPick {
     }
 
     #[func]
-    fn SongSelected(&mut self, index: i64) {
-        if index < 0 {
+    fn SongSelected(&mut self) {
+        let tree = self
+            .base()
+            .get_node_as::<Tree>("MarginContainer/VBoxContainer/ContentSplit/SongsTree");
+        let Some(item) = tree.get_selected() else {
             return;
-        }
-        let visible_idx = index as usize;
-        let Some(song_idx) = self.visible_indices.get(visible_idx).copied() else {
+        };
+        let Some(song_idx) = item.get_metadata(0).try_to::<i64>().ok().map(|x| x as usize) else {
             return;
         };
         self.selected_index = Some(song_idx);
@@ -586,17 +667,30 @@ impl SongPick {
     }
 
     #[func]
-    fn SongActivated(&mut self, index: i64) {
-        if index < 0 {
+    fn SongActivated(&mut self) {
+        let tree = self
+            .base()
+            .get_node_as::<Tree>("MarginContainer/VBoxContainer/ContentSplit/SongsTree");
+        let Some(item) = tree.get_selected() else {
             return;
-        }
-
-        let visible_idx = index as usize;
-        let Some(song_idx) = self.visible_indices.get(visible_idx).copied() else {
+        };
+        let Some(song_idx) = item.get_metadata(0).try_to::<i64>().ok().map(|x| x as usize) else {
             return;
         };
         self.selected_index = Some(song_idx);
         self.play_selected_instrument_inner();
+    }
+
+    #[func]
+    fn SongColumnTitleClicked(&mut self, column: i64, _mouse_button_index: i64) {
+        let column = column as i32;
+        if self.sort_column == column {
+            self.sort_desc = !self.sort_desc;
+        } else {
+            self.sort_column = column;
+            self.sort_desc = false;
+        }
+        self.refresh_song_list();
     }
 
     #[func]
@@ -612,10 +706,10 @@ impl SongPick {
 
         let mut list = self
             .base()
-            .get_node_as::<ItemList>("MarginContainer/VBoxContainer/ContentSplit/SongsItemList");
-        list.select(pick as i32);
-
+            .get_node_as::<Tree>("MarginContainer/VBoxContainer/ContentSplit/SongsTree");
         let song_idx = self.visible_indices[pick];
+        self.select_song_row(song_idx);
+        let _ = list.call("ensure_cursor_is_visible", &[]);
         self.selected_index = Some(song_idx);
         self.update_selected_song_ui(song_idx);
     }
@@ -760,7 +854,7 @@ struct SongScene {
     loop_b: Option<f64>,
     song_data: SongData,
     instrument_name: String,
-    folder_name: String,
+    song_id: String,
     has_audio_stream: bool,
     instrument_menu_names: Vec<String>,
     guitar_chart_root: Option<Gd<Node3D>>,
@@ -783,7 +877,7 @@ impl INode for SongScene {
             loop_b: None,
             song_data: SongData::default(),
             instrument_name: String::new(),
-            folder_name: String::new(),
+            song_id: String::new(),
             has_audio_stream: false,
             instrument_menu_names: Vec::new(),
             guitar_chart_root: None,
@@ -799,16 +893,16 @@ impl INode for SongScene {
 
     fn ready(&mut self) {
         if let Some(pending) = take_pending_song() {
-            self.folder_name = pending.folder.clone();
+            self.song_id = pending.song_id.clone();
             self.instrument_name = pending.instrument;
-            if let Some(data) = read_song_data(&self.folder_name) {
+            if let Some(data) = read_song_data(&self.song_id) {
                 self.song_data = data;
             }
         } else {
-            let list = read_song_file_list();
-            if let Some(first_song) = list.data.first() {
-                self.folder_name = first_song.folder_name.clone();
-                if let Some(data) = read_song_data(&self.folder_name) {
+            let songs = catalog_list_song_files();
+            if let Some(first_song) = songs.first() {
+                self.song_id = first_song.folder_name.clone();
+                if let Some(data) = read_song_data(&self.song_id) {
                     self.instrument_name = data
                         .instruments
                         .iter()
@@ -1128,8 +1222,16 @@ impl SongScene {
             );
             let chord_dir = Vector3::new(0.0, 6.0 * calc_string_distance() * 0.5, 0.0);
             for node in [
-                box_line(Color::from_rgb(0.83, 0.83, 0.83), bottom_left, bottom_left + Vector3::new(0.0, 0.0, across) + chord_dir),
-                box_line(Color::from_rgb(0.83, 0.83, 0.83), bottom_left + Vector3::new(0.0, 0.0, across), bottom_left + chord_dir),
+                box_line_translucent(
+                    Color::from_rgba(0.83, 0.83, 0.83, 0.52),
+                    bottom_left,
+                    bottom_left + Vector3::new(0.0, 0.0, across) + chord_dir,
+                ),
+                box_line_translucent(
+                    Color::from_rgba(0.83, 0.83, 0.83, 0.52),
+                    bottom_left + Vector3::new(0.0, 0.0, across),
+                    bottom_left + chord_dir,
+                ),
             ] {
                 chart_root.add_child(&node.clone().upcast::<Node>());
                 self.song_chart_nodes.push(node);
@@ -1167,10 +1269,18 @@ impl SongScene {
         );
         let chord_dir = Vector3::new(0.0, 6.0 * calc_string_distance(), 0.0);
         for node in [
-            box_line(Color::from_rgb(0.83, 0.83, 0.83), bottom_left + chord_dir, bottom_left),
-            box_line(Color::from_rgb(0.83, 0.83, 0.83), bottom_left, bottom_left + Vector3::new(0.0, 0.0, across)),
-            box_line(
-                Color::from_rgb(0.83, 0.83, 0.83),
+            box_line_translucent(
+                Color::from_rgba(0.83, 0.83, 0.83, 0.52),
+                bottom_left + chord_dir,
+                bottom_left,
+            ),
+            box_line_translucent(
+                Color::from_rgba(0.83, 0.83, 0.83, 0.52),
+                bottom_left,
+                bottom_left + Vector3::new(0.0, 0.0, across),
+            ),
+            box_line_translucent(
+                Color::from_rgba(0.83, 0.83, 0.83, 0.52),
                 bottom_left + Vector3::new(0.0, 0.0, across),
                 bottom_left + Vector3::new(0.0, 0.0, across) + chord_dir,
             ),
@@ -1234,49 +1344,27 @@ impl SongScene {
         self.has_audio_stream = false;
         let mut player = self.base().get_node_as::<AudioStreamPlayer>("AudioStreamPlayer");
 
-        let Some(audio_path) = find_song_audio_file(&self.folder_name) else {
-            let wem_exists = song_root_folder().join(&self.folder_name).join("song.wem").exists();
+        let audio_stream = match load_song_audio_stream(&self.song_id) {
+            Ok(stream) => stream,
+            Err(err) => {
+                godot_error!("[audio] failed loading stream for '{}': {}", self.song_id, err);
             let mut details = self
                 .base()
                 .get_node_as::<Label>("DetailsVBoxContainer/SongDetailsLabel");
             let details_text = format!(
-                "Length: {}\nInstrument: {}\nAudio: missing{}",
+                "Length: {}\nInstrument: {}\nAudio: missing ({})",
                 to_min_sec(self.song_data.metadata.song_length),
                 self.instrument_name,
-                if wem_exists {
-                    " (song.wem present; ensure libvgmstream shared library is available for wem->ogg 48k conversion)"
-                } else {
-                    ""
-                }
+                err,
             );
             details.set_text(&details_text);
             return;
+            }
         };
 
-        let audio_path_str = audio_path.to_string_lossy().to_string();
-        if audio_path
-            .extension()
-            .and_then(|x| x.to_str())
-            .is_some_and(|x| x.eq_ignore_ascii_case("ogg"))
-        {
-            if let Some(stream) = AudioStreamOggVorbis::load_from_file(&audio_path_str) {
-                let audio_stream: Gd<godot::classes::AudioStream> = stream.upcast();
-                let _ = player.call("set_stream", &[audio_stream.to_variant()]);
-                player.play();
-                self.has_audio_stream = true;
-            }
-        } else if audio_path
-            .extension()
-            .and_then(|x| x.to_str())
-            .is_some_and(|x| x.eq_ignore_ascii_case("wav"))
-        {
-            if let Some(stream) = AudioStreamWav::load_from_file(&audio_path_str) {
-                let audio_stream: Gd<godot::classes::AudioStream> = stream.upcast();
-                let _ = player.call("set_stream", &[audio_stream.to_variant()]);
-                player.play();
-                self.has_audio_stream = true;
-            }
-        }
+        let _ = player.call("set_stream", &[audio_stream.to_variant()]);
+        player.play();
+        self.has_audio_stream = true;
     }
 
     fn populate_instrument_menu(&mut self) {
@@ -1656,6 +1744,22 @@ fn mesh_box(color: Color, pos: Vector3, scale: Vector3) -> Gd<Node3D> {
     node.upcast()
 }
 
+fn mesh_box_translucent(color: Color, pos: Vector3, scale: Vector3) -> Gd<Node3D> {
+    let mut mat = StandardMaterial3D::new_gd();
+    mat.set_transparency(Transparency::ALPHA);
+    mat.set_albedo(color);
+    let mut mesh = BoxMesh::new_gd();
+    mesh.set_size(scale);
+    let material: Gd<Material> = mat.upcast();
+    mesh.set_material(&material);
+
+    let mut node = MeshInstance3D::new_alloc();
+    let mesh_up: Gd<Mesh> = mesh.upcast();
+    node.set_mesh(&mesh_up);
+    node.set_position(pos);
+    node.upcast()
+}
+
 fn box_line(color: Color, start: Vector3, end: Vector3) -> Gd<Node3D> {
     let length = (end - start).length();
     let center = start.lerp(end, 0.5);
@@ -1663,6 +1767,23 @@ fn box_line(color: Color, start: Vector3, end: Vector3) -> Gd<Node3D> {
     let dy = (end.y - start.y).abs();
     let dz = (end.z - start.z).abs();
     mesh_box(
+        color,
+        center,
+        Vector3::new(
+            if dx > 0.001 { length } else { 0.1 },
+            if dy > 0.001 { dy.max(0.16) } else { 0.16 },
+            if dz > 0.001 { dz.max(0.16) } else { 0.16 },
+        ),
+    )
+}
+
+fn box_line_translucent(color: Color, start: Vector3, end: Vector3) -> Gd<Node3D> {
+    let length = (end - start).length();
+    let center = start.lerp(end, 0.5);
+    let dx = (end.x - start.x).abs();
+    let dy = (end.y - start.y).abs();
+    let dz = (end.z - start.z).abs();
+    mesh_box_translucent(
         color,
         center,
         Vector3::new(
@@ -1962,7 +2083,8 @@ fn create_window_piece(
     );
 
     let mut mat = StandardMaterial3D::new_gd();
-    mat.set_albedo(Color::from_rgb(0.28, 0.24, 0.55));
+    mat.set_transparency(Transparency::ALPHA);
+    mat.set_albedo(Color::from_rgba(0.28, 0.24, 0.55, 0.35));
     let mut plane = PlaneMesh::new_gd();
     plane.set_size(Vector2::new(
         instrument.config.note_speed as f32 * (end_time - start_time),
@@ -2035,29 +2157,30 @@ impl ConvertMenu {
 
     #[func]
     fn FromDownloadsButton_Pressed(&mut self) {
-        let downloads = Os::singleton().get_system_dir(godot::classes::os::SystemDir::DOWNLOADS);
-        let files = collect_psarc_files_recursive(&PathBuf::from(downloads.to_string()));
-        self.import_psarc_files(files);
+        self.rescan_dlc(PathBuf::from("/home/csantz/Music/DLC"));
     }
 
     #[func]
     fn Dir_Selected(&mut self, dir: GString) {
-        let files = collect_psarc_files_recursive(&PathBuf::from(dir.to_string()));
-        self.import_psarc_files(files);
+        self.rescan_dlc(PathBuf::from(dir.to_string()));
     }
 
     #[func]
     fn File_Selected(&mut self, path: GString) {
-        self.import_psarc_files(vec![PathBuf::from(path.to_string())]);
+        let path = PathBuf::from(path.to_string());
+        let dir = if path.is_dir() {
+            path
+        } else {
+            path.parent().map(|x| x.to_path_buf()).unwrap_or(path)
+        };
+        self.rescan_dlc(dir);
     }
 
     #[func]
     fn Files_Selected(&mut self, paths: PackedStringArray) {
-        let mut files = Vec::new();
-        for path in paths.as_slice() {
-            files.push(PathBuf::from(path.to_string()));
+        if let Some(first) = paths.as_slice().first() {
+            self.File_Selected(first.clone());
         }
-        self.import_psarc_files(files);
     }
 
     #[func]
@@ -2072,20 +2195,15 @@ impl ConvertMenu {
     #[func]
     fn AnimateOut(&mut self) {}
 
-    fn import_psarc_files(&mut self, files: Vec<PathBuf>) {
+    fn rescan_dlc(&mut self, dir: PathBuf) {
         let mut info = self.base().get_node_as::<Label>("InfoLabel");
-        if files.is_empty() {
-            info.set_text("No valid .psarc files found");
-            return;
-        }
-
-        match parser_import_psarc_files(&files) {
-            Ok(report) => {
-                let msg = format!("Imported: {}, failed: {}", report.completed, report.failed);
+        match catalog_rescan_dlc_dir(&dir) {
+            Ok(count) => {
+                let msg = format!("Scanned {} songs from {}", count, dir.to_string_lossy());
                 info.set_text(&msg);
             }
             Err(err) => {
-                let msg = format!("Import failed: {err}");
+                let msg = format!("Rescan failed: {err}");
                 info.set_text(&msg);
             }
         }
@@ -2222,33 +2340,33 @@ impl IRefCounted for TabPlayerBackend {
 impl TabPlayerBackend {
     #[func]
     fn import_psarc_dir(&self, dir: GString) -> VariantDict {
-        let files = collect_psarc_files_recursive(&PathBuf::from(dir.to_string()));
-        self.import_files_internal(files)
+        self.rescan_internal(Some(PathBuf::from(dir.to_string())))
     }
 
     #[func]
     fn import_default_dlc(&self) -> VariantDict {
-        self.import_psarc_dir("/home/csantz/Music/DLC".into())
+        self.rescan_internal(None)
     }
 
     #[func]
     fn import_psarc_files(&self, paths: PackedStringArray) -> VariantDict {
-        let mut files = Vec::new();
-        for path in paths.as_slice() {
-            files.push(PathBuf::from(path.to_string()));
+        if let Some(first) = paths.as_slice().first() {
+            return self.import_psarc_dir(first.clone());
         }
-        self.import_files_internal(files)
+        self.rescan_internal(None)
     }
 
     #[func]
     fn song_count(&self) -> i64 {
-        read_song_file_list().data.len() as i64
+        let _ = ensure_song_catalog_loaded();
+        catalog_list_song_files().len() as i64
     }
 
     #[func]
     fn list_song_folders(&self) -> PackedStringArray {
+        let _ = ensure_song_catalog_loaded();
         let mut arr = PackedStringArray::new();
-        for song in read_song_file_list().data {
+        for song in catalog_list_song_files() {
             arr.push(song.folder_name.as_str());
         }
         arr
@@ -2257,7 +2375,7 @@ impl TabPlayerBackend {
     #[func]
     fn load_song_summary(&self, folder: GString) -> VariantDict {
         let mut dict = VariantDict::new();
-        if let Ok(song) = load_song(&folder.to_string()) {
+        if let Ok(song) = catalog_load_song_data(&folder.to_string()) {
             dict.set("ok", true);
             dict.set("name", song.metadata.name);
             dict.set("artist", song.metadata.artist);
@@ -2276,48 +2394,77 @@ impl TabPlayerBackend {
     }
 
     #[func]
+    fn song_audio_status(&self, folder: GString) -> VariantDict {
+        let mut dict = VariantDict::new();
+        let song_id = folder.to_string();
+        match load_song_audio_stream(&song_id) {
+            Ok(_) => {
+                dict.set("ok", true);
+                dict.set("error", "");
+            }
+            Err(err) => {
+                dict.set("ok", false);
+                dict.set("error", err.to_string());
+            }
+        }
+        dict
+    }
+
+    #[func]
     fn song_art_status(&self, folder: GString) -> VariantDict {
         let mut dict = VariantDict::new();
-        let song_dir = song_root_folder().join(folder.to_string());
-        let art_path = song_dir.join("album.dds");
-        dict.set("exists", art_path.exists());
-        dict.set("path", art_path.to_string_lossy().to_string());
-
-        if art_path.exists() {
-            let mut compressed = CompressedTexture2D::new_gd();
-            let compressed_ok = compressed.load(&art_path.to_string_lossy().to_string()) == godot::global::Error::OK;
-            let loadable = load_dds_texture(&art_path).is_some();
-            dict.set("compressed_loadable", compressed_ok);
-            dict.set("loadable", loadable);
-            dict.set(
-                "load_error",
-                if loadable {
-                    ""
-                } else {
-                    "dds decode failed"
-                },
-            );
-        } else {
-            dict.set("compressed_loadable", false);
-            dict.set("loadable", false);
-            dict.set("load_error", "missing");
+        match catalog_load_song_album_art(&folder.to_string()) {
+            Ok(Some(bytes)) => {
+                let loadable = load_dds_texture_from_bytes(&bytes).is_some();
+                dict.set("exists", true);
+                dict.set("path", "psarc://album.dds");
+                dict.set("compressed_loadable", false);
+                dict.set("loadable", loadable);
+                dict.set(
+                    "load_error",
+                    if loadable {
+                        ""
+                    } else {
+                        "dds decode failed"
+                    },
+                );
+            }
+            Ok(None) => {
+                dict.set("exists", false);
+                dict.set("path", "");
+                dict.set("compressed_loadable", false);
+                dict.set("loadable", false);
+                dict.set("load_error", "missing");
+            }
+            Err(err) => {
+                dict.set("exists", false);
+                dict.set("path", "");
+                dict.set("compressed_loadable", false);
+                dict.set("loadable", false);
+                dict.set("load_error", err.to_string());
+            }
         }
 
         dict
     }
 
-    fn import_files_internal(&self, files: Vec<PathBuf>) -> VariantDict {
+    fn rescan_internal(&self, dir: Option<PathBuf>) -> VariantDict {
         let mut dict = VariantDict::new();
-        match parser_import_psarc_files(&files) {
-            Ok(report) => {
+        let result = if let Some(dir) = dir {
+            catalog_rescan_dlc_dir(&dir)
+        } else {
+            catalog_rescan_default_dlc()
+        };
+        match result {
+            Ok(count) => {
                 dict.set("ok", true);
-                dict.set("completed", report.completed as i64);
-                dict.set("failed", report.failed as i64);
+                dict.set("completed", count as i64);
+                dict.set("failed", 0_i64);
             }
             Err(err) => {
                 dict.set("ok", false);
                 dict.set("completed", 0_i64);
-                dict.set("failed", files.len() as i64);
+                dict.set("failed", 1_i64);
                 dict.set("error", err.to_string());
             }
         }

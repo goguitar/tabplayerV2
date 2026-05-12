@@ -14,3 +14,4 @@ rocksmith2014-psarc = { git = "https://github.com/santzit/Rocksmith2014.rs", pac
 rocksmith2014-xml = { git = "https://github.com/santzit/Rocksmith2014.rs", package = "rocksmith2014-xml" }
 rocksmith2014-sng = { git = "https://github.com/santzit/Rocksmith2014.rs", package = "rocksmith2014-sng" }
 tabplayer_ffi = { path = "../ffi" }
+once_cell.workspace = true
