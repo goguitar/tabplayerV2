@@ -27,6 +27,22 @@ See the MiiChannel song, note the strings and note preview at: https://www.murph
 
 Most have slight modifications to work in the c# .net 7 environment for godot.
 
+## Rust Controller Migration (in progress)
+
+The Godot scene controllers are being migrated to Rust via GDExtension (`godot-rust` `v0.5.2`).
+
+Build the extension from `rust/` and copy the generated library into `godot/bin/`:
+
+```text
+cargo build -p godot_bridge
+```
+
+Expected library names:
+
+- Linux: `libgodot_bridge.so`
+- Windows: `godot_bridge.dll`
+- macOS: `libgodot_bridge.dylib`
+
 ### Modifying and Useful Notes
 
 #### How to create a new c# and attach the project
