@@ -1,4 +1,4 @@
-# TabPlayer using Godot and C#
+# TabPlayer using Godot and Rust
 
 This application lets you play rocksmith cldc and others by importing them in app forever.
 
@@ -19,20 +19,29 @@ See the MiiChannel song, note the strings and note preview at: https://www.murph
 1. Run the reload song list feature
 1. Play Songs
 
-## Included C# Dependencies
+## Included Rust Dependencies
 
--   [PsarcLib](https://github.com/kokolihapihvi/Rocksmith2014PsarcLib)
--   [revorbstd](https://github.com/overtools/revorbstd)
--   [WEMSharp](https://github.com/neon-nyan/WEMSharp)
+-   [godot-rust/gdext v0.5.2](https://github.com/godot-rust/gdext/releases/tag/v0.5.2) for Godot scripting
+-   [Rocksmith2014.rs](https://github.com/santzit/rocksmith2014.rs) for PSARC/SNG/XML parsing
+-   [vgmstream r2083](https://github.com/vgmstream/vgmstream/releases/tag/r2083) WAV-only shared library for WEM → WAV decoding (Rust FFI)
 
-Most have slight modifications to work in the c# .net 7 environment for godot.
-
-### Modifying and Useful Notes
-
-#### How to create a new c# and attach the project
+### Building the GDExtension
 
 ```
-dotnet new classlib -o TabPlayer.SomeImportantStuff
-dotnet sln '.\TabPlayer.sln' add .\TabPlayer.SomeImportantStuff\TabPlayer.SomeImportantStuff.csproj
-### not needed as godot does "stuff": dotnet add '.\TabPlayer.csproj' reference .\TabPlayer.SomeImportantStuff\TabPlayer.SomeImportantStuff.csproj
+cd rust
+cargo build -p tabplayer_gd
 ```
+
+The resulting shared library is loaded from:
+
+- `res://rust/target/debug/libtabplayer_gd.so` (Linux)
+- `res://rust/target/debug/tabplayer_gd.dll` (Windows)
+- `res://rust/target/debug/libtabplayer_gd.dylib` (macOS)
+
+### vgmstream shared library
+
+The Linux `libvgmstream.so` (r2083, WAV-only build) is vendored under `third_party/vgmstream/linux/`.
+For other platforms, build and drop the corresponding shared library into:
+
+- `third_party/vgmstream/windows/libvgmstream.dll`
+- `third_party/vgmstream/macos/libvgmstream.dylib`

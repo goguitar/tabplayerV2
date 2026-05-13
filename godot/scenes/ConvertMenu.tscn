@@ -1,14 +1,11 @@
-[gd_scene load_steps=3 format=3 uid="uid://dnewt4oe3noao"]
-
-[ext_resource type="Script" uid="uid://bjg2vy7l1qxw1" path="res://scenes/ConvertMenu.cs" id="1_3s682"]
+[gd_scene load_steps=2 format=3 uid="uid://dnewt4oe3noao"]
 
 [sub_resource type="LabelSettings" id="LabelSettings_yv0al"]
 font_size = 32
 
-[node name="ConvertMenu" type="VBoxContainer"]
+[node name="ConvertMenu" type="ConvertMenu"]
 offset_right = 874.0
 offset_bottom = 270.0
-script = ExtResource("1_3s682")
 
 [node name="FileDialog" type="FileDialog" parent="."]
 title = "Open a File or Directory"

@@ -1,0 +1,3 @@
+[workspace]
+members = ["tabplayer_gd"]
+resolver = "2"

@@ -1,6 +1,4 @@
-[gd_scene load_steps=4 format=3 uid="uid://1274mds3lc08"]
-
-[ext_resource type="Script" uid="uid://c7dweto26pri1" path="res://scenes/SongScene.cs" id="1_jxipg"]
+[gd_scene load_steps=3 format=3 uid="uid://1274mds3lc08"]
 
 [sub_resource type="LabelSettings" id="LabelSettings_smbfm"]
 line_spacing = 0.0
@@ -8,8 +6,7 @@ line_spacing = 0.0
 [sub_resource type="LabelSettings" id="LabelSettings_42vc3"]
 line_spacing = 0.0
 
-[node name="SongScene" type="Node"]
-script = ExtResource("1_jxipg")
+[node name="SongScene" type="SongScene"]
 
 [node name="DetailsVBoxContainer" type="VBoxContainer" parent="."]
 anchors_preset = 1

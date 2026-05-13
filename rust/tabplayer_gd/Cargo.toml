@@ -1,0 +1,22 @@
+[package]
+name = "tabplayer_gd"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bitflags = "2.11.1"
+godot = { version = "0.5.2", features = ["api-4-5"] }
+itertools = "0.14.0"
+libloading = "0.9.0"
+once_cell = "1.21.4"
+parking_lot = "0.12.5"
+rand = "0.10.1"
+rocksmith2014-psarc = { git = "https://github.com/santzit/Rocksmith2014.rs", version = "0.1.0" }
+rocksmith2014-sng = { git = "https://github.com/santzit/Rocksmith2014.rs", version = "0.1.0" }
+rocksmith2014-xml = { git = "https://github.com/santzit/Rocksmith2014.rs", version = "0.1.0" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+thiserror = "2.0.18"

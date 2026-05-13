@@ -1,6 +1,4 @@
-[gd_scene load_steps=4 format=3 uid="uid://bitdqk5i3b1jq"]
-
-[ext_resource type="Script" uid="uid://c4kgl0w3m6bo" path="res://scenes/StartMenu.cs" id="1_wbodt"]
+[gd_scene load_steps=3 format=3 uid="uid://bitdqk5i3b1jq"]
 
 [sub_resource type="LabelSettings" id="LabelSettings_f02ew"]
 font_size = 78
@@ -8,7 +6,7 @@ font_size = 78
 [sub_resource type="LabelSettings" id="LabelSettings_csdhn"]
 font_size = 25
 
-[node name="StartMenu" type="Control"]
+[node name="StartMenu" type="StartMenu"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -17,7 +15,6 @@ grow_horizontal = 2
 grow_vertical = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-script = ExtResource("1_wbodt")
 
 [node name="ReloadProgressLabel" type="Label" parent="."]
 layout_mode = 1
