@@ -22,6 +22,8 @@ struct SongScene {
     last_note_block_node: Option<Gd<Node3D>>,
     last_chord_block: Option<tabplayer_parser::models::NoteBlock>,
     cached_song_position: Option<f64>,
+    pause_action_down: bool,
+    cancel_action_down: bool,
 }
 
 #[godot_api]
@@ -45,10 +47,13 @@ impl INode for SongScene {
             last_note_block_node: None,
             last_chord_block: None,
             cached_song_position: None,
+            pause_action_down: false,
+            cancel_action_down: false,
         }
     }
 
     fn ready(&mut self) {
+        self.base_mut().set_process_input(true);
         if let Some(pending) = take_pending_song() {
             self.song_id = pending.song_id.clone();
             self.instrument_name = pending.instrument;
@@ -80,6 +85,7 @@ impl INode for SongScene {
     }
 
     fn process(&mut self, delta: f64) {
+        self.handle_input_actions();
         self.cached_song_position = None;
         if self.has_audio_stream {
             let song_time = self.get_song_position();
@@ -137,6 +143,50 @@ impl INode for SongScene {
 
 #[godot_api]
 impl SongScene {
+    fn handle_input_actions(&mut self) {
+        let input = Input::singleton();
+
+        let pause_down = input.is_action_pressed("song_pause");
+        let cancel_down = input.is_action_pressed("ui_cancel");
+
+        if (pause_down && !self.pause_action_down) || (cancel_down && !self.cancel_action_down) {
+            self.PauseButton_Pressed();
+        }
+        self.pause_action_down = pause_down;
+        self.cancel_action_down = cancel_down;
+
+        if input.is_action_just_pressed("song_skip_forward_10") {
+            self.Skip10Sec();
+        }
+        if input.is_action_just_pressed("song_skip_backward_10") {
+            self.Back10Sec();
+        }
+        if input.is_action_just_pressed("song_skip_to_next") {
+            self.SkipToNext();
+        }
+        if input.is_action_just_pressed("song_restart") {
+            self.RestartSong();
+        }
+        if input.is_action_just_pressed("song_speed_down") {
+            self.SlowDownPlayback();
+        }
+        if input.is_action_just_pressed("song_speed_up") {
+            self.SpeedUpPlayback();
+        }
+        if input.is_action_just_pressed("song_reset_speed") {
+            self.ResetSongSpeed();
+        }
+        if input.is_action_just_pressed("song_set_loop_start") {
+            self.PickA();
+        }
+        if input.is_action_just_pressed("song_set_loop_end") {
+            self.PickB();
+        }
+        if input.is_action_just_pressed("song_reset_loop") {
+            self.ClearLoopTimes();
+        }
+    }
+
     fn current_instrument(&self) -> Option<&tabplayer_parser::models::SongInstrument> {
         self.song_data
             .instruments
@@ -1105,7 +1155,8 @@ fn text_vertical(text: &str, pos: Vector3) -> Gd<Node3D> {
     label.set_text(text);
     label.set_font_size(200);
     label.set_position(pos);
-    let _ = label.call("rotate_y", &[std::f32::consts::FRAC_PI_2.to_variant()]);
+    let _ = label.call("rotate_y", &[(-std::f32::consts::FRAC_PI_2).to_variant()]);
+    label.set_scale(Vector3::new(-1.0, 1.0, 1.0));
     label.upcast()
 }
 

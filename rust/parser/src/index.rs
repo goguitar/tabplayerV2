@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use rocksmith2014_psarc::Psarc;
 use rocksmith2014_sng::{BendValue, Note as SngNote, NoteMask as SngNoteMask, Platform as SngPlatform, Sng};
 use rocksmith2014_xml::{ChordTemplate, InstrumentalArrangement};
+use serde_json::Value;
 use tabplayer_ffi::native_audio::decode_wem_to_wav;
 
 use crate::models::{
@@ -97,37 +98,13 @@ pub fn parse_song_file_summary_from_psarc(path: &Path) -> Result<SongFile> {
         parsed_arrangements.push((arrangement_path, arrangement));
     }
 
-    let mut metadata = if let Some((_, primary)) = parsed_arrangements.first() {
-        SongMetadata {
-            name: if primary.meta.song_name.is_empty() {
-                file_stem.replace('_', " ")
-            } else {
-                primary.meta.song_name.clone()
-            },
-            artist: if primary.meta.artist_name.is_empty() {
-                "Unknown Artist".to_string()
-            } else {
-                primary.meta.artist_name.clone()
-            },
-            album: if primary.meta.album_name.is_empty() {
-                "Unknown Album".to_string()
-            } else {
-                primary.meta.album_name.clone()
-            },
-            year: if primary.meta.album_year > 0 {
-                Some(primary.meta.album_year)
-            } else {
-                None
-            },
-            song_length: if primary.meta.song_length > 0 {
-                primary.meta.song_length as f64 / 1000.0
-            } else {
-                0.0
-            },
-        }
-    } else {
-        metadata_from_file_stem(file_stem)
-    };
+    let mut metadata = metadata_from_arrangements(file_stem, &parsed_arrangements);
+    if let Some(hsan_metadata) = load_hsan_song_metadata(&mut psarc, &manifest, file_stem) {
+        apply_song_metadata(&mut metadata, hsan_metadata, true, file_stem);
+    } else if let Some(manifest_metadata) = load_manifest_song_metadata(&mut psarc, &manifest, file_stem)
+    {
+        apply_song_metadata(&mut metadata, manifest_metadata, false, file_stem);
+    }
 
     let mut instruments = Vec::<SongFileInstrument>::new();
     if parsed_arrangements.is_empty() {
@@ -378,37 +355,13 @@ fn parse_song_models_from_psarc(path: &Path, folder_name: String) -> Result<(Son
         }
     }
 
-    let mut metadata = if let Some((_, primary)) = parsed_arrangements.first() {
-        SongMetadata {
-            name: if primary.meta.song_name.is_empty() {
-                file_stem.replace('_', " ")
-            } else {
-                primary.meta.song_name.clone()
-            },
-            artist: if primary.meta.artist_name.is_empty() {
-                "Unknown Artist".to_string()
-            } else {
-                primary.meta.artist_name.clone()
-            },
-            album: if primary.meta.album_name.is_empty() {
-                "Unknown Album".to_string()
-            } else {
-                primary.meta.album_name.clone()
-            },
-            year: if primary.meta.album_year > 0 {
-                Some(primary.meta.album_year)
-            } else {
-                None
-            },
-            song_length: if primary.meta.song_length > 0 {
-                primary.meta.song_length as f64 / 1000.0
-            } else {
-                0.0
-            },
-        }
-    } else {
-        metadata_from_file_stem(file_stem)
-    };
+    let mut metadata = metadata_from_arrangements(file_stem, &parsed_arrangements);
+    if let Some(hsan_metadata) = load_hsan_song_metadata(&mut psarc, &manifest, file_stem) {
+        apply_song_metadata(&mut metadata, hsan_metadata, true, file_stem);
+    } else if let Some(manifest_metadata) = load_manifest_song_metadata(&mut psarc, &manifest, file_stem)
+    {
+        apply_song_metadata(&mut metadata, manifest_metadata, false, file_stem);
+    }
 
     let mut instruments = Vec::new();
     if parsed_arrangements.is_empty() {
@@ -496,6 +449,273 @@ fn metadata_from_file_stem(file_stem: &str) -> SongMetadata {
         year: None,
         song_length: 0.0,
     }
+}
+
+fn metadata_from_arrangements(
+    file_stem: &str,
+    parsed_arrangements: &[(String, InstrumentalArrangement)],
+) -> SongMetadata {
+    let mut metadata = metadata_from_file_stem(file_stem);
+    let default_name = file_stem.replace('_', " ");
+
+    for (_, arrangement) in parsed_arrangements {
+        if (metadata.name.is_empty() || metadata.name == default_name || metadata.name == "Unknown Song")
+            && !arrangement.meta.song_name.is_empty()
+        {
+            metadata.name = arrangement.meta.song_name.clone();
+        }
+        if (metadata.artist.is_empty() || metadata.artist == "Unknown Artist")
+            && !arrangement.meta.artist_name.is_empty()
+        {
+            metadata.artist = arrangement.meta.artist_name.clone();
+        }
+        if (metadata.album.is_empty() || metadata.album == "Unknown Album")
+            && !arrangement.meta.album_name.is_empty()
+        {
+            metadata.album = arrangement.meta.album_name.clone();
+        }
+        if metadata.year.is_none() && arrangement.meta.album_year > 0 {
+            metadata.year = Some(arrangement.meta.album_year);
+        }
+        if metadata.song_length <= 0.0 && arrangement.meta.song_length > 0 {
+            metadata.song_length = arrangement.meta.song_length as f64 / 1000.0;
+        }
+    }
+
+    if metadata.song_length <= 0.0 {
+        metadata.song_length = parsed_arrangements
+            .iter()
+            .map(|(_, arrangement)| arrangement_max_time_seconds(arrangement))
+            .fold(0.0_f64, f64::max);
+    }
+
+    metadata
+}
+
+fn arrangement_max_time_seconds(arrangement: &InstrumentalArrangement) -> f64 {
+    arrangement
+        .levels
+        .iter()
+        .map(|level| {
+            let note_max = level
+                .notes
+                .iter()
+                .map(|note| note.time as f64)
+                .fold(0.0_f64, f64::max);
+            let chord_max = level
+                .chords
+                .iter()
+                .map(|chord| chord.time as f64)
+                .fold(0.0_f64, f64::max);
+            note_max.max(chord_max)
+        })
+        .fold(0.0_f64, f64::max)
+        / 1000.0
+}
+
+fn apply_song_metadata(target: &mut SongMetadata, source: SongMetadata, strict_override: bool, file_stem: &str) {
+    let default_name = file_stem.replace('_', " ");
+
+    if !source.name.is_empty()
+        && source.name != "Unknown Song"
+        && (strict_override
+            || target.name.is_empty()
+            || target.name == default_name
+            || target.name == "Unknown Song")
+    {
+        target.name = source.name;
+    }
+    if !source.artist.is_empty()
+        && source.artist != "Unknown Artist"
+        && (strict_override || target.artist.is_empty() || target.artist == "Unknown Artist")
+    {
+        target.artist = source.artist;
+    }
+    if !source.album.is_empty()
+        && source.album != "Unknown Album"
+        && (strict_override || target.album.is_empty() || target.album == "Unknown Album")
+    {
+        target.album = source.album;
+    }
+    if source.year.is_some() && (strict_override || target.year.is_none()) {
+        target.year = source.year;
+    }
+    if source.song_length > 0.0 && (strict_override || target.song_length <= 0.0) {
+        target.song_length = source.song_length;
+    }
+}
+
+fn load_hsan_song_metadata<R: std::io::Read + std::io::Seek>(
+    psarc: &mut Psarc<R>,
+    manifest: &[String],
+    file_stem: &str,
+) -> Option<SongMetadata> {
+    load_metadata_from_json_entries(psarc, manifest, file_stem, |path| {
+        path.to_ascii_lowercase().ends_with(".hsan")
+    })
+}
+
+fn load_manifest_song_metadata<R: std::io::Read + std::io::Seek>(
+    psarc: &mut Psarc<R>,
+    manifest: &[String],
+    file_stem: &str,
+) -> Option<SongMetadata> {
+    load_metadata_from_json_entries(psarc, manifest, file_stem, |path| {
+        let lower = path.to_ascii_lowercase();
+        lower.ends_with(".json") && lower.contains("manif")
+    })
+}
+
+fn load_metadata_from_json_entries<R: std::io::Read + std::io::Seek, F: Fn(&str) -> bool>(
+    psarc: &mut Psarc<R>,
+    manifest: &[String],
+    file_stem: &str,
+    path_filter: F,
+) -> Option<SongMetadata> {
+    let default = metadata_from_file_stem(file_stem);
+    let default_name = default.name.clone();
+    let default_artist = default.artist.clone();
+
+    let mut best: Option<(SongMetadata, i32)> = None;
+
+    for entry in manifest {
+        if !path_filter(entry) {
+            continue;
+        }
+        let Ok(bytes) = psarc.inflate_file(entry) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
+            continue;
+        };
+
+        let mut candidates = Vec::new();
+        collect_attribute_objects(&value, &mut candidates);
+        for obj in candidates {
+            let mut candidate = SongMetadata {
+                name: json_string(obj, &["songName", "SongName"]).unwrap_or_else(|| default_name.clone()),
+                artist: json_string(obj, &["artistName", "ArtistName"]).unwrap_or_else(|| default_artist.clone()),
+                album: json_string(obj, &["albumName", "AlbumName"]).unwrap_or_else(|| "Unknown Album".to_string()),
+                year: json_i32(obj, &["songYear", "SongYear", "albumYear", "AlbumYear"]),
+                song_length: json_f64(obj, &["songLength", "SongLength"])
+                    .map(|x| if x > 1000.0 { x / 1000.0 } else { x })
+                    .unwrap_or(0.0),
+            };
+            if candidate.year.is_some_and(|x| x <= 0) {
+                candidate.year = None;
+            }
+            if candidate.song_length < 0.0 {
+                candidate.song_length = 0.0;
+            }
+
+            let score = metadata_score(&candidate, &default_name, &default_artist);
+            if best.as_ref().is_none_or(|(_, best_score)| score > *best_score) {
+                best = Some((candidate, score));
+            }
+        }
+    }
+
+    best.map(|(metadata, _)| metadata)
+}
+
+fn metadata_score(metadata: &SongMetadata, default_name: &str, default_artist: &str) -> i32 {
+    let mut score = 0;
+    if !metadata.name.is_empty() && metadata.name != "Unknown Song" && metadata.name != default_name {
+        score += 2;
+    }
+    if !metadata.artist.is_empty() && metadata.artist != "Unknown Artist" && metadata.artist != default_artist {
+        score += 2;
+    }
+    if !metadata.album.is_empty() && metadata.album != "Unknown Album" {
+        score += 3;
+    }
+    if metadata.year.is_some_and(|x| x > 0) {
+        score += 2;
+    }
+    if metadata.song_length > 0.0 {
+        score += 2;
+    }
+    score
+}
+
+fn collect_attribute_objects<'a>(value: &'a Value, out: &mut Vec<&'a serde_json::Map<String, Value>>) {
+    match value {
+        Value::Object(map) => {
+            if let Some(Value::Object(attrs)) = map.get("Attributes") {
+                out.push(attrs);
+            }
+            if let Some(Value::Object(attrs)) = map.get("attributes") {
+                out.push(attrs);
+            }
+            if map.contains_key("songName")
+                || map.contains_key("SongName")
+                || map.contains_key("albumName")
+                || map.contains_key("AlbumName")
+                || map.contains_key("songLength")
+                || map.contains_key("SongLength")
+            {
+                out.push(map);
+            }
+            for child in map.values() {
+                collect_attribute_objects(child, out);
+            }
+        }
+        Value::Array(arr) => {
+            for child in arr {
+                collect_attribute_objects(child, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn json_string(map: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(value) = map.get(*key) {
+            if let Some(s) = value.as_str() {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn json_i32(map: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<i32> {
+    for key in keys {
+        if let Some(value) = map.get(*key) {
+            if let Some(n) = value.as_i64() {
+                return Some(n as i32);
+            }
+            if let Some(s) = value.as_str() {
+                if let Ok(n) = s.parse::<i32>() {
+                    return Some(n);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn json_f64(map: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<f64> {
+    for key in keys {
+        if let Some(value) = map.get(*key) {
+            if let Some(n) = value.as_f64() {
+                return Some(n);
+            }
+            if let Some(n) = value.as_i64() {
+                return Some(n as f64);
+            }
+            if let Some(s) = value.as_str() {
+                if let Ok(n) = s.parse::<f64>() {
+                    return Some(n);
+                }
+            }
+        }
+    }
+    None
 }
 
 fn convert_sng_only_instrument(name: &str, sng: &Sng) -> SongInstrument {

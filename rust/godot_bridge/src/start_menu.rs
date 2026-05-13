@@ -20,7 +20,11 @@ impl IControl for StartMenu {
     }
 
     fn ready(&mut self) {
-        let _ = ensure_song_catalog_loaded();
+        self.base_mut().set_process(true);
+        if let Err(err) = catalog_rescan_default_dlc() {
+            godot_error!("[catalog] startup rescan failed: {}", err);
+            let _ = ensure_song_catalog_loaded();
+        }
         let song_count = catalog_list_song_files().len();
         let mut label = self.base().get_node_as::<Label>("%SongCountLabel");
         let text = format!("{song_count} songs");
@@ -48,6 +52,7 @@ impl IControl for StartMenu {
         if (new_x - self.menu_target_x).abs() < 0.5 {
             menu.set_position(Vector2::new(self.menu_target_x, pos.y));
             self.menu_animating = false;
+            self.base_mut().set_process(false);
         }
     }
 }

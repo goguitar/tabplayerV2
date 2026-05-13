@@ -38,6 +38,7 @@ impl IControl for SongPick {
     fn ready(&mut self) {
         let _ = ensure_song_catalog_loaded();
         self.songs = catalog_list_song_files();
+        self.enrich_song_metadata();
         self.configure_song_tree();
         self.populate_tuning_filter();
         self.refresh_song_list();
@@ -46,6 +47,33 @@ impl IControl for SongPick {
 
 #[godot_api]
 impl SongPick {
+    fn enrich_song_metadata(&mut self) {
+        for song in &mut self.songs {
+            if song.album != "Unknown Album" && song.year.is_some() && song.length > 0.0 {
+                continue;
+            }
+            let Ok(song_data) = catalog_load_song_data(&song.folder_name) else {
+                continue;
+            };
+            let meta = song_data.metadata;
+            if song.song_name.trim().is_empty() || song.song_name.eq_ignore_ascii_case("unknown song") {
+                song.song_name = meta.name.clone();
+            }
+            if song.artist.trim().is_empty() || song.artist.eq_ignore_ascii_case("unknown artist") {
+                song.artist = meta.artist.clone();
+            }
+            if song.album == "Unknown Album" && !meta.album.trim().is_empty() {
+                song.album = meta.album.clone();
+            }
+            if song.year.is_none() {
+                song.year = meta.year;
+            }
+            if song.length <= 0.0 {
+                song.length = meta.song_length;
+            }
+        }
+    }
+
     fn configure_song_tree(&mut self) {
         let mut tree = self
             .base()

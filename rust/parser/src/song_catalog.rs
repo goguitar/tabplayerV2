@@ -43,6 +43,26 @@ pub fn rescan_dlc_dir(root: &Path) -> Result<usize> {
             continue;
         };
 
+        if song_file.album == "Unknown Album" || song_file.year.is_none() || song_file.length <= 0.0 {
+            if let Ok(song_data) = load_song_data_from_psarc(&path) {
+                if song_file.song_name.trim().is_empty() || song_file.song_name.eq_ignore_ascii_case("unknown song") {
+                    song_file.song_name = song_data.metadata.name;
+                }
+                if song_file.artist.trim().is_empty() || song_file.artist.eq_ignore_ascii_case("unknown artist") {
+                    song_file.artist = song_data.metadata.artist;
+                }
+                if song_file.album == "Unknown Album" && !song_data.metadata.album.trim().is_empty() {
+                    song_file.album = song_data.metadata.album;
+                }
+                if song_file.year.is_none() {
+                    song_file.year = song_data.metadata.year;
+                }
+                if song_file.length <= 0.0 {
+                    song_file.length = song_data.metadata.song_length;
+                }
+            }
+        }
+
         let base_id = if song_file.folder_name.is_empty() {
             "song".to_string()
         } else {

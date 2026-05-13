@@ -6,7 +6,7 @@ use anyhow::anyhow;
 pub(crate) use godot::classes::{
     AudioServer, AudioStreamPlayer, AudioStreamWav, BoxMesh, Button, Camera3D, CheckBox, ConfirmationDialog, Engine, Control,
     DirectionalLight3D, FileDialog, IControl, INode, INode2D, INode3D,
-    IRefCounted, IVBoxContainer, Image, ImageTexture, Label, LineEdit, MenuButton,
+    IRefCounted, IVBoxContainer, Image, ImageTexture, Input, Label, LineEdit, MenuButton,
     Label3D, Material, Mesh, MeshInstance3D, Node, Node2D, Node3D, OptionButton, Os, PlaneMesh, RefCounted,
     RichTextLabel, StandardMaterial3D, TextureRect, Tree, VBoxContainer,
 };
