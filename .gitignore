@@ -33,3 +33,5 @@ bld/
 
 # generated exe files can also be ignored
 *.exe
+# Rust build artifacts
+rust/target/

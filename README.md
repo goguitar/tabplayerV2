@@ -1,38 +1,42 @@
-# TabPlayer using Godot and C#
+# TabPlayer (Godot + Rust)
 
-This application lets you play rocksmith cldc and others by importing them in app forever.
+TabPlayer is a Rocksmith-style practice player built with Godot and Rust.
 
-It allows stopping, rewinding and skipping through songs much faster than rocksmith.
-And allows you to play along with the notes as you would TAB or sheet music.
+It lets you load songs from DLC `.psarc` files, browse/filter your library, and play with skip/loop/speed controls while viewing note/chord charts.
 
-This doesn't listen to a plugged in guitar or tell you notes hit
+This app does not do real-time guitar input detection or scoring.
 
-See the MiiChannel song, note the strings and note preview at: https://www.murph9.com/mygames
+## Current Runtime
+
+- Godot controllers run through Rust GDExtension (`godot-rust` `v0.5.2`)
+- Runtime song source is PSARC-first (no converted song-folder dependency)
+- Audio path is WEM decode via `vgmstream` and in-memory WAV stream load
+- Song catalog is rescanned from DLC at startup
 
 ## How to play
 
-1. Download the latest release from [Github Releases](https://github.com/Murph9/tabplayerV2/releases)
+1. Download a release from [GitHub Releases](https://github.com/Murph9/tabplayerV2/releases)
+2. Put your `.psarc` DLC files under your DLC folder (default Linux path used by this repo: `/home/csantz/Music/DLC`)
+3. Launch the game
+4. Open Song Pick and play
 
-1. Download some songs from various sources like [CustomsForge](https://customsforge.com/index.php) (requires a free account)
+## Build (Linux)
 
-1. Go to the convert page and select the downloaded songs
-1. Run the reload song list feature
-1. Play Songs
+Build and copy the extension library into `godot/bin/`:
 
-## Included C# Dependencies
-
--   [PsarcLib](https://github.com/kokolihapihvi/Rocksmith2014PsarcLib)
--   [revorbstd](https://github.com/overtools/revorbstd)
--   [WEMSharp](https://github.com/neon-nyan/WEMSharp)
-
-Most have slight modifications to work in the c# .net 7 environment for godot.
-
-### Modifying and Useful Notes
-
-#### How to create a new c# and attach the project
-
+```bash
+tools/build_godot_bridge.sh
 ```
-dotnet new classlib -o TabPlayer.SomeImportantStuff
-dotnet sln '.\TabPlayer.sln' add .\TabPlayer.SomeImportantStuff\TabPlayer.SomeImportantStuff.csproj
-### not needed as godot does "stuff": dotnet add '.\TabPlayer.csproj' reference .\TabPlayer.SomeImportantStuff\TabPlayer.SomeImportantStuff.csproj
+
+Equivalent manual commands:
+
+```bash
+cargo build -p godot_bridge --manifest-path rust/Cargo.toml
+cp rust/target/debug/libgodot_bridge.so godot/bin/libgodot_bridge.so
 ```
+
+Expected library names:
+
+- Linux: `libgodot_bridge.so`
+- Windows: `godot_bridge.dll`
+- macOS: `libgodot_bridge.dylib`

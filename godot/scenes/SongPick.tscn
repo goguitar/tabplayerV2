@@ -1,11 +1,9 @@
-[gd_scene load_steps=3 format=3 uid="uid://cjt4fuduh34qh"]
-
-[ext_resource type="Script" uid="uid://d3kp2whpmvl8m" path="res://scenes/SongPick.cs" id="1_tdao1"]
+[gd_scene load_steps=2 format=3 uid="uid://cjt4fuduh34qh"]
 
 [sub_resource type="LabelSettings" id="LabelSettings_88tyd"]
 font_size = 20
 
-[node name="SongPick" type="Control"]
+[node name="SongPick" type="SongPick"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -14,7 +12,6 @@ grow_horizontal = 2
 grow_vertical = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-script = ExtResource("1_tdao1")
 
 [node name="MarginContainer" type="MarginContainer" parent="."]
 layout_mode = 1
@@ -31,22 +28,273 @@ theme_override_constants/margin_bottom = 25
 [node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer"]
 layout_mode = 2
 
-[node name="HBoxContainer" type="HBoxContainer" parent="MarginContainer/VBoxContainer"]
+[node name="HeaderHBox" type="HBoxContainer" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
 
-[node name="BackButton" type="Button" parent="MarginContainer/VBoxContainer/HBoxContainer"]
+[node name="BackButton" type="Button" parent="MarginContainer/VBoxContainer/HeaderHBox"]
 layout_mode = 2
 text = "Back"
 
-[node name="Title" type="Label" parent="MarginContainer/VBoxContainer/HBoxContainer"]
+[node name="Title" type="Label" parent="MarginContainer/VBoxContainer/HeaderHBox"]
 layout_mode = 2
 text = "Select a song"
 label_settings = SubResource("LabelSettings_88tyd")
+
+[node name="FilterHBox" type="HBoxContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="RandomButton" type="Button" parent="MarginContainer/VBoxContainer/FilterHBox"]
+layout_mode = 2
+text = "Random"
+
+[node name="FilterLineEdit" type="LineEdit" parent="MarginContainer/VBoxContainer/FilterHBox"]
+custom_minimum_size = Vector2(250, 0)
+layout_mode = 2
+placeholder_text = "Search"
+clear_button_enabled = true
+
+[node name="TuningLabel" type="Label" parent="MarginContainer/VBoxContainer/FilterHBox"]
+layout_mode = 2
+text = "Set Tuning:"
+
+[node name="TuningOptionButton" type="OptionButton" parent="MarginContainer/VBoxContainer/FilterHBox"]
+custom_minimum_size = Vector2(180, 0)
+layout_mode = 2
+
+[node name="CapoCheckBox" type="CheckBox" parent="MarginContainer/VBoxContainer/FilterHBox"]
+layout_mode = 2
+text = "Capo Songs"
+
+[node name="SongsLoadedLabel" type="Label" parent="MarginContainer/VBoxContainer/FilterHBox"]
+layout_mode = 2
+text = "0 songs shown"
+
+[node name="ContentSplit" type="HSplitContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="SongsTree" type="Tree" parent="MarginContainer/VBoxContainer/ContentSplit"]
+custom_minimum_size = Vector2(500, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+columns = 6
+column_titles_visible = true
+
+[node name="DetailsVBox" type="VBoxContainer" parent="MarginContainer/VBoxContainer/ContentSplit"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="AlbumArtTextureRect" type="TextureRect" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox"]
+custom_minimum_size = Vector2(320, 320)
+layout_mode = 2
+expand_mode = 3
+stretch_mode = 5
+
+[node name="ArtistLabel" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox"]
+layout_mode = 2
+text = "Artist:"
+
+[node name="SongNameLabel" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox"]
+layout_mode = 2
+text = "Name:"
+
+[node name="AlbumLabel" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox"]
+layout_mode = 2
+text = "Album:"
+
+[node name="YearLabel" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox"]
+layout_mode = 2
+text = "Year:"
+
+[node name="OtherLabel" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox"]
+layout_mode = 2
+text = "Length:"
+
+[node name="InstrumentCountLabel" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox"]
+layout_mode = 2
+text = "Instruments:"
+
+[node name="InstrumentGridContainer" type="GridContainer" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox"]
+layout_mode = 2
+columns = 4
+
+[node name="InstHeaderPlay" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+text = "Play"
+
+[node name="InstHeaderTuning" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+text = "Tuning"
+
+[node name="InstHeaderCount" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+text = "Note Counts"
+
+[node name="InstHeaderDensity" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+text = "Note Density"
+
+[node name="InstrumentButton0" type="Button" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+text = "Play"
+
+[node name="InstrumentTuning0" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentCount0" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentDensity0" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentButton1" type="Button" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+text = "Play"
+
+[node name="InstrumentTuning1" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentCount1" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentDensity1" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentButton2" type="Button" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+text = "Play"
+
+[node name="InstrumentTuning2" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentCount2" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentDensity2" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentButton3" type="Button" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+text = "Play"
+
+[node name="InstrumentTuning3" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentCount3" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentDensity3" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentButton4" type="Button" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+text = "Play"
+
+[node name="InstrumentTuning4" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentCount4" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentDensity4" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentButton5" type="Button" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+text = "Play"
+
+[node name="InstrumentTuning5" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentCount5" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentDensity5" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentButton6" type="Button" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+text = "Play"
+
+[node name="InstrumentTuning6" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentCount6" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentDensity6" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentButton7" type="Button" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+text = "Play"
+
+[node name="InstrumentTuning7" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentCount7" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="InstrumentDensity7" type="Label" parent="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer"]
+layout_mode = 2
+visible = false
+
+[node name="HelpLabel" type="Label" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Select a song, then click Play"
 
 [node name="TuningConfirmationDialog" type="ConfirmationDialog" parent="."]
 title = "Info"
 initial_position = 1
 size = Vector2i(420, 100)
 
-[connection signal="pressed" from="MarginContainer/VBoxContainer/HBoxContainer/BackButton" to="." method="Back"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/HeaderHBox/BackButton" to="." method="Back"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/FilterHBox/RandomButton" to="." method="SelectRandom"]
+[connection signal="text_changed" from="MarginContainer/VBoxContainer/FilterHBox/FilterLineEdit" to="." method="UpdateFilter"]
+[connection signal="item_selected" from="MarginContainer/VBoxContainer/FilterHBox/TuningOptionButton" to="." method="TuningSelected"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/FilterHBox/CapoCheckBox" to="." method="ShowCapo_Pressed"]
+[connection signal="item_selected" from="MarginContainer/VBoxContainer/ContentSplit/SongsTree" to="." method="SongSelected"]
+[connection signal="item_activated" from="MarginContainer/VBoxContainer/ContentSplit/SongsTree" to="." method="SongActivated"]
+[connection signal="column_title_clicked" from="MarginContainer/VBoxContainer/ContentSplit/SongsTree" to="." method="SongColumnTitleClicked"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer/InstrumentButton0" to="." method="InstrumentButton0_Pressed"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer/InstrumentButton1" to="." method="InstrumentButton1_Pressed"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer/InstrumentButton2" to="." method="InstrumentButton2_Pressed"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer/InstrumentButton3" to="." method="InstrumentButton3_Pressed"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer/InstrumentButton4" to="." method="InstrumentButton4_Pressed"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer/InstrumentButton5" to="." method="InstrumentButton5_Pressed"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer/InstrumentButton6" to="." method="InstrumentButton6_Pressed"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/ContentSplit/DetailsVBox/InstrumentGridContainer/InstrumentButton7" to="." method="InstrumentButton7_Pressed"]
 [connection signal="confirmed" from="TuningConfirmationDialog" to="." method="ConfirmedInstrumentTuningIsDiff"]
